@@ -266,7 +266,10 @@ class SemanticPlanner:
     def _entity_collection(self, phrase_tokens: Set[str]) -> List[Tuple[float, str]]:
         scored = []
         for coll, meta in self.v.collections.items():
-            s = 2.0 * self._overlap(phrase_tokens, tokens(coll.split(".")[-1]))
+            name_toks = set(tokens(coll.split(".")[-1]))
+            s = 2.0 * self._overlap(phrase_tokens, list(name_toks))
+            if s > 0:  # prefer names mostly explained by the phrase ("contacts" over "assoc companies contacts")
+                s += self.w.precision * len(name_toks & phrase_tokens) / max(len(name_toks), 1)
             s += 0.5 * min(self._overlap(phrase_tokens, tokens(meta.get("description", ""))), 3.0)
             if s > 0:
                 scored.append((s, coll))

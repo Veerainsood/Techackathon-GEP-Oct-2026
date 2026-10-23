@@ -28,10 +28,13 @@ EXPLORER_WEIGHTS = PlannerWeights(name=2.0, description=0.8, collection=1.4, con
 class ExplorerAgent:
     name = "Explorer"
 
-    def __init__(self, packs: Sequence[Dict[str, Any]], max_steps: int = 14, inspect_k: int = 5, llm=None, max_turns: int = 24):
+    def __init__(self, packs: Sequence[Dict[str, Any]], max_steps: int = 14, inspect_k: int = 5, llm=None, max_turns: int = 24,
+                 max_sources: int = 2, reserve_calls: int = 10):
         self.packs = packs
         self.max_steps = max_steps
         self.inspect_k = inspect_k
+        self.max_sources = max_sources
+        self.reserve_calls = reserve_calls
         self.llm = llm  # LLMProvider or None (offline deterministic mode)
         self.max_turns = max_turns
 
@@ -94,9 +97,16 @@ class ExplorerAgent:
         literals = self._literal_phrases(question)
         st.hypotheses.append(f"aggregation {frame.aggregation}; literal value phrases {literals}")
 
+        # rank sources by retrieval relevance; investigate the most relevant ones while keeping budget in reserve
+        ranked = session.call("discover_collections", objective="rank sources by relevance to the question", phase="DISCOVER",
+                              query=question, k=10)
+        order = list(dict.fromkeys([h["source_id"] for h in ranked] + [s["source_id"] for s in sources]))
+        st.known_facts.append(f"source relevance order: {order}")
         best = None
-        for src in sources:
-            sid = src["source_id"]
+        for sid in order[: self.max_sources]:
+            if session.max_calls - len(session.observations) < self.reserve_calls:
+                st.remaining_ambiguities.append(f"skipped source {sid}: tool budget reserved for query and verification")
+                break
             try:
                 cand = self._investigate_source(question, sid, session, st, learned, literals)
             except ToolBudgetExceeded as exc:
@@ -113,7 +123,11 @@ class ExplorerAgent:
         st.tool_observations = session.observations
         st.known_facts.append("main query " + ("succeeded" if res["succeeded"] else "failed"))
         # ---------------- VERIFY (independent checks the agent runs itself)
-        checks = self._verify(session, plan, best["view"], res, evidence, st)
+        try:
+            checks = self._verify(session, plan, best["view"], res, evidence, st)
+        except ToolBudgetExceeded as exc:
+            checks = [ValidationFinding(validator_name="explorer_budget", passed=False, severity="warning",
+                                        message=f"self-verification incomplete: {exc}")]
         st.evidence_references = evidence
         return build_candidate(self.name, question, plan, sql, res, session, evidence, checks, st,
                                (time.perf_counter() - t0) * 1000)

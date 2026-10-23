@@ -11,7 +11,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from fastapi import Depends, FastAPI, File, Header, HTTPException, UploadFile
+from fastapi import Depends, FastAPI, File, Header, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
@@ -149,6 +149,130 @@ def kg_stats(ctx: AccessContext = Depends(access)) -> Dict[str, Any]:
 def kg_search(q: str, k: int = 10, ctx: AccessContext = Depends(access)) -> List[Dict[str, Any]]:
     return [{"id": n["node_id"], "type": n["node_type"], "label": n["label"], "status": n["verification_status"],
              "score": round(s, 3)} for n, s in engine().kg.search(q, k=k, tenant=ctx.tenant_id)]
+
+
+@app.post("/ask/stream")
+def ask_stream(req: AskRequest, ctx: AccessContext = Depends(access)):
+    """Server-sent events: agent/tool events as they happen, then the final decision."""
+    import json as _json
+    import queue
+    import threading
+
+    from fastapi.responses import StreamingResponse
+
+    q: "queue.Queue" = queue.Queue()
+
+    def work():
+        try:
+            state = engine().workflow.run(req.question, ctx, mode=req.mode, use_memory=req.use_memory,
+                                          export_formats=req.export_formats, on_event=q.put)
+            q.put({"event": "decision", "decision": {k: state["decision"][k] for k in (
+                "final_answer", "verification_status", "selected_path", "agreement_status", "winning_query", "query_lineage")}})
+        except Exception as exc:
+            q.put({"event": "error", "error": str(exc)})
+        q.put(None)
+
+    threading.Thread(target=work, daemon=True).start()
+
+    def gen():
+        while True:
+            item = q.get()
+            if item is None:
+                break
+            yield f"data: {_json.dumps(item, default=str)}\n\n"
+
+    return StreamingResponse(gen(), media_type="text/event-stream")
+
+
+@app.get("/skills")
+def skills(ctx: AccessContext = Depends(access)) -> List[Dict[str, Any]]:
+    return engine().toolbox().list_skills(ctx)
+
+
+@app.get("/skills/{skill_id}")
+def skill(skill_id: str, ctx: AccessContext = Depends(access)) -> Dict[str, Any]:
+    try:
+        return engine().toolbox().load_skill(ctx, skill_id)
+    except KeyError as exc:
+        raise HTTPException(404, str(exc))
+
+
+@app.get("/sources/{source_id}/contexts")
+def contexts(source_id: str, ctx: AccessContext = Depends(access)) -> List[Dict[str, Any]]:
+    try:
+        return engine().toolbox().list_collection_contexts(ctx, source_id)
+    except AccessDenied as exc:
+        raise HTTPException(403, str(exc))
+
+
+@app.get("/sources/{source_id}/contexts/{collection}")
+def collection_context(source_id: str, collection: str, value_profile: bool = False, ctx: AccessContext = Depends(access)):
+    try:
+        return engine().toolbox().load_collection_context(ctx, source_id, collection, value_profile)
+    except AccessDenied as exc:
+        raise HTTPException(403, str(exc))
+    except KeyError as exc:
+        raise HTTPException(404, str(exc))
+
+
+class ConnectorRequest(BaseModel):
+    source_id: str
+    resources: Optional[List[str]] = None  # Intune resources / HubSpot objects; credentials come from the environment
+    full: bool = False
+
+
+@app.post("/connectors/intune")
+def connect_intune(req: ConnectorRequest, ctx: AccessContext = Depends(access)) -> Dict[str, Any]:
+    from udre.ingestion.base import AuthenticationError
+    from udre.ingestion.intune import MicrosoftIntuneSourceAdapter
+
+    try:
+        conn = MicrosoftIntuneSourceAdapter(resources=req.resources)
+    except AuthenticationError as exc:
+        raise HTTPException(400, str(exc))
+    return engine().ingestion.ingest(ctx, conn, req.source_id, full=req.full).__dict__
+
+
+@app.post("/connectors/hubspot")
+def connect_hubspot(req: ConnectorRequest, ctx: AccessContext = Depends(access)) -> Dict[str, Any]:
+    from udre.ingestion.base import AuthenticationError
+    from udre.ingestion.hubspot import HubSpotSourceAdapter
+
+    try:
+        conn = HubSpotSourceAdapter(objects=req.resources)
+    except AuthenticationError as exc:
+        raise HTTPException(400, str(exc))
+    return engine().ingestion.ingest(ctx, conn, req.source_id, full=req.full).__dict__
+
+
+@app.post("/sources/{source_id}/sync")
+def sync(source_id: str, full: bool = False, ctx: AccessContext = Depends(access)) -> Dict[str, Any]:
+    try:
+        return engine().ingestion.sync(ctx, source_id, full=full).__dict__
+    except KeyError as exc:
+        raise HTTPException(404, str(exc))
+
+
+@app.post("/webhooks/hubspot/{source_id}")
+async def hubspot_webhook(source_id: str, request: Request) -> Dict[str, Any]:
+    import os
+
+    from udre.ingestion.hubspot import verify_webhook_v3
+
+    body = (await request.body()).decode()
+    secret = os.environ.get("UDRE_HUBSPOT_CLIENT_SECRET", "")
+    ok = secret and verify_webhook_v3(secret, request.method, str(request.url), body,
+                                      request.headers.get("X-HubSpot-Request-Timestamp", ""),
+                                      request.headers.get("X-HubSpot-Signature-v3", ""))
+    if not ok:
+        raise HTTPException(401, "invalid webhook signature")
+    conn = engine().ingestion.connectors.get(source_id)
+    if conn is None:
+        raise HTTPException(404, "unknown source")
+    import json as _json
+
+    stores = [s for k, s in engine().ingestion.stores.items() if k.endswith(f"/{source_id}")]
+    return {"queued": conn.handle_webhook(_json.loads(body), stores[0] if stores else None)}
 
 
 @app.post("/export")

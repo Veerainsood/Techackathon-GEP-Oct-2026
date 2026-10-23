@@ -11,12 +11,15 @@ pip install -r requirements.txt
 python scripts/build_dataset.py      # generate + load into PostgreSQL, export files, run invariants (all must pass)
 python scripts/build_knowledge.py    # discovery, profiling, ontology/knowledge graph (incremental)
 python scripts/run_demo.py           # end-to-end questions with lineage, validation, exports
-python -m pytest tests -q            # 42 tests
+python scripts/run_phase2_demo.py    # Phase 2: HubSpot + Intune ingestion (mock APIs), skill files, both agents, provenance
+python -m pytest tests -q            # 74 tests
 python scripts/run_benchmark.py --split all
 uvicorn udre.api.app:app --port 8000 # HTTP API (see docs/API_EXAMPLES.md)
 ```
 
-No PostgreSQL install is needed. If `UDRE_PG_URI` is unset, `udre/pg_embedded.py` starts a local PostgreSQL 16 with pgvector, using the binaries shipped in the `pgserver` wheel. The data lives in `.pgdata/` and the server keeps running between processes; stop it with `python -m udre.pg_embedded stop`. No LLM credentials are required (see *Status* below).
+No PostgreSQL install is needed. If `UDRE_PG_URI` is unset, `udre/pg_embedded.py` starts a local PostgreSQL 16 with pgvector, using the binaries shipped in the `pgserver` wheel. The data lives in `.pgdata/` and the server keeps running between processes; stop it with `python -m udre.pg_embedded stop`. No LLM credentials are required: without them the engine runs in an explicit, labelled deterministic offline mode.
+
+**Phase 2** added the database-investigation skill with versioned per-collection reference files, LLM tool-calling for both agents (Anthropic Messages / OpenAI-compatible, including Azure AI Foundry), Microsoft Intune and HubSpot connectors on a common ingestion pipeline, cross-source candidates and adjudication fixes. See [docs/PHASE2.md](docs/PHASE2.md) for what is implemented, how it was tested, benchmark changes and what still needs credentials.
 
 ## Architecture
 
