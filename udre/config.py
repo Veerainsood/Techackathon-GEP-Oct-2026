@@ -17,7 +17,7 @@ class Settings:
     uploads_dir: str = os.environ.get("UDRE_UPLOADS_DIR", str(ROOT / "data" / "uploads"))
     exports_dir: str = os.environ.get("UDRE_EXPORTS_DIR", str(ROOT / "exports"))
     explorer_max_steps: int = int(os.environ.get("UDRE_EXPLORER_MAX_STEPS", "14"))
-    hercules_context_tokens: int = int(os.environ.get("UDRE_HERCULES_CONTEXT_TOKENS", "24000"))
+    hercules_context_tokens: int = int(os.environ.get("UDRE_HERCULES_CONTEXT_TOKENS", "32000"))
     max_rows: int = int(os.environ.get("UDRE_MAX_ROWS", "1000"))
     llm_model: str = os.environ.get("UDRE_LLM_MODEL", "")
     tenants: List[str] = field(default_factory=lambda: ["default"])
