@@ -519,7 +519,8 @@ def test_api_streams_real_events_and_analyses_uploaded_file(rt):
         assert c.get(art["download_url"], headers={"X-Tenant-Id": "other", "X-User-Id": "x"}).status_code == 404
         assert e.kg.nodes(source_id=ws["source_id"], tenant=TENANT) == []  # uploads never touch the tenant ontology
         body = json.dumps(event(sequence=1800, data_version="v1800")).encode()
-        assert c.post("/events/sync", content=body, headers={"X-UDRE-Signature": sign(body, SECRET)}).json()["status"] == "accepted"
+        res = c.post("/events/sync?process=true", content=body, headers={"X-UDRE-Signature": sign(body, SECRET)}).json()
+        assert res["status"] == "accepted" and res["processing"]
         assert c.post("/events/sync", content=body, headers={"X-UDRE-Signature": "bad"}).status_code == 401
         src = next(s for s in c.get("/runtime/sources", headers=h).json() if s["source_id"] == "sync_lab")
         assert src["sync_status"] == "ok" and src["data_version"]
