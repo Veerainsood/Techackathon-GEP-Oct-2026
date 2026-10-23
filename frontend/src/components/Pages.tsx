@@ -1,6 +1,8 @@
 import { CheckCircle2, Inbox, Lock, RefreshCw } from 'lucide-react'
-import { useState, type ReactNode } from 'react'
-import { boundaries, policies, sources, type Action, type Mode, type Source } from '../data'
+import { useEffect, useState, type ReactNode } from 'react'
+import { boundaries, policies, sources, type Action, type Boundary, type Mode, type Source } from '../data'
+import { api } from '../live/api'
+import { LIVE, toBoundary } from '../live/adapter'
 import { ActionRow } from './Thread'
 import { SourceDot } from './ui'
 
@@ -91,12 +93,43 @@ const channels = [
   { name: 'Escalate if unanswered', detail: 'After 4 hours, route to delegate', on: true },
 ]
 
+const errorText = (e: unknown) => (e instanceof Error ? e.message : String(e))
+
 export function SettingsPage() {
   const [tab, setTab] = useState<(typeof settingsTabs)[number]['id']>('guardrails')
-  const [rows, setRows] = useState(boundaries)
+  const [rows, setRows] = useState<Boundary[]>(LIVE ? [] : boundaries)
+  const [loaded, setLoaded] = useState(!LIVE)
+  const [guardError, setGuardError] = useState<string | null>(null)
   const [chan, setChan] = useState(channels)
   const count = (m: Mode) => rows.filter((r) => r.mode === m).length
   const active = settingsTabs.find((t) => t.id === tab)!
+
+  useEffect(() => {
+    if (!LIVE) return
+    api
+      .guardrails()
+      .then((g) => {
+        setRows(g.map(toBoundary))
+        setGuardError(null)
+      })
+      .catch((e) => setGuardError(`Could not load guardrails: ${errorText(e)}`))
+      .finally(() => setLoaded(true))
+  }, [])
+
+  // Optimistic update: the row changes at once and is reverted if the server refuses the change.
+  const changeMode = (row: Boundary, m: Mode) => {
+    const previous = row.mode
+    const setMode = (mode: Mode) => setRows((prev) => prev.map((x) => (x.action === row.action ? { ...x, mode } : x)))
+    setMode(m)
+    if (!LIVE || !row.id) return
+    api
+      .setGuardrail(row.id, m)
+      .then(() => setGuardError(null))
+      .catch((e) => {
+        setMode(previous)
+        setGuardError(`Could not save "${row.action}": ${errorText(e)}`)
+      })
+  }
 
   return (
     <Page title="Settings" subtitle="Control what the agent may do on its own, the rules it follows, and how it reaches you.">
@@ -117,6 +150,8 @@ export function SettingsPage() {
 
       {tab === 'guardrails' && (
         <>
+      {guardError && <div className="mb-3 rounded-lg bg-rose-50 px-3 py-2 text-[12px] text-rose-700">{guardError}</div>}
+      {!loaded && <div className="mb-3 text-[12px] text-muted">Loading guardrails…</div>}
       <div className="mb-3 flex items-center gap-2 text-[12px]">
         {(['auto', 'approve', 'never'] as Mode[]).map((m) => (
           <span key={m} className="flex items-center gap-1.5 rounded-full border border-line bg-white px-2.5 py-1">
@@ -126,7 +161,7 @@ export function SettingsPage() {
         ))}
       </div>
       <div className="overflow-hidden rounded-xl border border-line bg-white text-[13px]">
-        {rows.map((r, i) => (
+        {rows.map((r) => (
           <div key={r.action} className="flex items-center gap-4 border-b border-line px-4 py-3 last:border-0">
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-1.5 font-medium">
@@ -142,7 +177,7 @@ export function SettingsPage() {
                 <button
                   key={m}
                   disabled={r.locked}
-                  onClick={() => setRows((prev) => prev.map((x, j) => (j === i ? { ...x, mode: m } : x)))}
+                  onClick={() => changeMode(r, m)}
                   className={`rounded-md px-2.5 py-1 font-medium transition ${
                     r.mode === m ? modeMeta[m].on + ' shadow-sm' : 'text-stone-500 hover:text-ink'
                   } ${r.locked ? 'cursor-not-allowed' : ''}`}

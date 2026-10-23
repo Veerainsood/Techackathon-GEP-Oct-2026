@@ -48,6 +48,7 @@ class Engine:
     cross_source: Any = None
     ingestion: Any = None
     runtime_store: Any = None
+    governance: Any = None
     investigator: Any = None
     consumer: Any = None
     files: Any = None
@@ -176,8 +177,12 @@ def build_engine(settings: Optional[Settings] = None, register_defaults: bool = 
     explorer_llm, hercules_llm, adjudicator_llm = _providers(settings, llm_providers)
     gateway = SourceGateway()
     if register_defaults:
-        gateway.register(PostgresSourceAdapter("finance_pg", pg_uri(settings.data_db), name="Finance warehouse (PostgreSQL)",
+        gateway.register(PostgresSourceAdapter("finance_pg", pg_uri(settings.data_db), name="Finance warehouse",
                                                description="Operational finance warehouse"), tenants=settings.tenants)
+        # HubSpot CRM data written by knowledge-ingestion. Its sync events use source_id "hubspot" (UDRE_SOURCE_ID).
+        gateway.register(PostgresSourceAdapter("hubspot", pg_uri(settings.data_db), name="HubSpot CRM",
+                                               description="Contacts synced from HubSpot by knowledge-ingestion",
+                                               include_schemas=["hubspot"]), tenants=settings.tenants)
         if Path(settings.uploads_dir).exists() and any(Path(settings.uploads_dir).iterdir()):
             gateway.register(FileSourceAdapter("uploads", [settings.uploads_dir], name="Uploaded files",
                                                description="User-uploaded CSV / Excel / JSON / Parquet files"),
@@ -206,6 +211,8 @@ def build_engine(settings: Optional[Settings] = None, register_defaults: bool = 
     from udre.verification.llm_adjudicator import LLMAdjudicator
 
     engine.runtime_store = RuntimeStore(knowledge_uri)
+    from udre.governance.store import GovernanceStore
+    engine.governance = GovernanceStore(knowledge_uri)
     engine.investigator = ChangeInvestigator(engine, engine.runtime_store)
     engine.consumer = EventConsumer(engine.runtime_store, engine.investigator)
     engine.files = FileStore()

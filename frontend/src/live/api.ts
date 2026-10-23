@@ -38,6 +38,7 @@ export interface ModelConfig {
 export interface RuntimeSource {
   source_id: string
   name: string
+  description?: string
   type: string
   mode: string
   snapshot_synced_at?: string | null
@@ -135,6 +136,28 @@ export interface AskRequest {
 }
 export type StreamEvent = Record<string, unknown> & { event: string; agent?: string }
 
+export type GuardrailMode = 'auto' | 'approve' | 'never'
+export interface GuardrailRow {
+  rule_id: string
+  action: string
+  agent: string
+  mode: GuardrailMode
+  limit: string
+  locked: boolean
+}
+export type ApprovalStatus = 'pending' | 'approved' | 'rejected'
+export interface ApprovalRow {
+  approval_id: string
+  status: ApprovalStatus
+  payload: Record<string, unknown>
+  requested_at: string
+  decided_at?: string | null
+  decided_by?: string | null
+  decision_note?: string | null
+}
+
+const json = { 'Content-Type': 'application/json' }
+
 export const api = {
   health: () => request<{ status: string; sources: string[] }>('/health'),
   models: () => request<ModelConfig>('/runtime/models'),
@@ -150,6 +173,20 @@ export const api = {
   },
   createWorkspace: (fileIds: string[]) =>
     request<Workspace>('/workspaces', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ file_ids: fileIds }) }),
+
+  // Guardrails (Settings → Guardrails). Locked rules are refused by the server with 403.
+  guardrails: () => request<GuardrailRow[]>('/guardrails'),
+  setGuardrail: (ruleId: string, mode: GuardrailMode) =>
+    request<GuardrailRow>(`/guardrails/${encodeURIComponent(ruleId)}`, { method: 'PUT', headers: json, body: JSON.stringify({ mode }) }),
+
+  // Approval queue (Approvals screen).
+  approvals: (status: ApprovalStatus | 'all' = 'pending') => request<ApprovalRow[]>(`/approvals?status=${status}`),
+  decideApproval: (approvalId: string, approved: boolean, note?: string) =>
+    request<ApprovalRow>(`/approvals/${encodeURIComponent(approvalId)}/decision`, {
+      method: 'POST',
+      headers: json,
+      body: JSON.stringify({ approved, note: note ?? null }),
+    }),
 
   async download(url: string, filename: string): Promise<void> {
     const r = await fetch(API_BASE + url, { headers: headers() })

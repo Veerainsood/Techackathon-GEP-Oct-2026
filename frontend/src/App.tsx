@@ -8,7 +8,7 @@ import { Sidebar, type View } from './components/Sidebar'
 import { Thread } from './components/Thread'
 import { initialActions, liveEvents, overnightRuns, type Action } from './data'
 import { NotificationButton, NotificationsPanel } from './components/NotificationsPanel'
-import { LIVE, toActivity, toFeed, toGoals, toSource, toTimeline, useLiveData } from './live/adapter'
+import { LIVE, toAction, toActivity, toFeed, toGoals, toSource, toTimeline, useLiveData } from './live/adapter'
 import { api, type AskRequest } from './live/api'
 import { LiveThread } from './live/LiveThread'
 
@@ -82,6 +82,23 @@ export default function App() {
     return () => window.removeEventListener('keydown', onKey)
   }, [])
 
+  // Live approval queue: the backend is the source of truth; poll so new items and decisions show up.
+  useEffect(() => {
+    if (!LIVE) return
+    let alive = true
+    const load = () =>
+      api
+        .approvals('all')
+        .then((rows) => alive && setActions(rows.map(toAction)))
+        .catch(() => undefined) // backend-down is already reported by useLiveData
+    load()
+    const t = setInterval(load, 5000)
+    return () => {
+      alive = false
+      clearInterval(t)
+    }
+  }, [])
+
   const ask = (q: string) => {
     setQuery(q)
     if (LIVE) setRequest({ question: q, workspace_id: workspace })
@@ -100,7 +117,19 @@ export default function App() {
     }
   }
 
-  const decide = (id: string, approved: boolean) => {
+  const decide = async (id: string, approved: boolean) => {
+    if (LIVE) {
+      // Records the decision in the backend audit trail. It does not execute anything: no action connector exists yet.
+      try {
+        const row = await api.decideApproval(id, approved)
+        setActions((prev) => prev.map((a) => (a.id === id ? toAction(row) : a)))
+        setToast(approved ? `${id} approved and recorded · not executed (no connector yet)` : `${id} rejected and recorded`)
+      } catch (err) {
+        setToast(`Decision not saved: ${err instanceof Error ? err.message : String(err)}`)
+      }
+      setOpenId(null)
+      return
+    }
     const now = new Date().toTimeString().slice(0, 8)
     setActions((prev) =>
       prev.map((a) =>

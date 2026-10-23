@@ -9,6 +9,8 @@ const statusMap: Record<ActionStatus, { label: string; cls: string; icon: ReactN
   failed: { label: 'Failed', cls: 'bg-rose-50 text-rose-700 ring-rose-200', icon: <XCircle size={12} /> },
   blocked: { label: 'Held by policy', cls: 'bg-orange-50 text-orange-700 ring-orange-200', icon: <OctagonX size={12} /> },
   recommended: { label: 'Recommended', cls: 'bg-stone-100 text-stone-700 ring-stone-200', icon: <Lightbulb size={12} /> },
+  approved: { label: 'Approved', cls: 'bg-emerald-50 text-emerald-700 ring-emerald-200', icon: <CheckCircle2 size={12} /> },
+  rejected: { label: 'Rejected', cls: 'bg-stone-100 text-stone-600 ring-stone-300', icon: <XCircle size={12} /> },
 }
 
 export function StatusPill({ status }: { status: ActionStatus }) {
