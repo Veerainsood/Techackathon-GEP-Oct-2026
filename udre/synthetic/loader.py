@@ -18,25 +18,17 @@ DATASET_DB = "aethelgard_finance"
 def get_postgres_uri(data_dir: Optional[str] = None, database: str = DATASET_DB) -> str:
     """Return a PostgreSQL URI.
 
-    Uses ``UDRE_PG_URI`` when set; otherwise starts (or reuses) an embedded PostgreSQL 16
-    server with pgvector via ``pgserver`` rooted at ``data_dir``.
+    Uses ``UDRE_PG_URI`` when set; otherwise starts (or reuses) the embedded PostgreSQL 16
+    server with pgvector (see ``udre.pg_embedded``).
     """
     explicit = os.environ.get("UDRE_PG_URI")
     if explicit:
         return explicit
-    import pgserver  # local embedded server
+    from udre import pg_embedded
 
-    data_dir = data_dir or os.environ.get("UDRE_PGDATA") or str(Path(__file__).resolve().parents[2] / ".pgdata")
-    server = pgserver.get_server(data_dir, cleanup_mode=None)
-    base = server.get_uri()
-    admin = psycopg2.connect(base)
-    admin.autocommit = True
-    with admin.cursor() as cur:
-        cur.execute("SELECT 1 FROM pg_database WHERE datname = %s", (database,))
-        if cur.fetchone() is None:
-            cur.execute(f'CREATE DATABASE "{database}"')
-    admin.close()
-    return base.rsplit("/", 1)[0] + f"/{database}"
+    if data_dir:
+        os.environ["UDRE_PGDATA"] = data_dir
+    return pg_embedded.ensure_database(database)
 
 
 def _records(df: pd.DataFrame):

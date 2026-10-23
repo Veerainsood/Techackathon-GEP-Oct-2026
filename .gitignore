@@ -5,7 +5,8 @@ __pycache__/
 .env
 
 # embedded PostgreSQL data directory and generated artifacts (reproducible from seed)
-.pgdata/
+.pgdata*/
+.pglog/
 data/
 exports/
 

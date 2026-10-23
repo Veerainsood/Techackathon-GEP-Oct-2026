@@ -1,0 +1,253 @@
+[
+  {
+    "id": "H01",
+    "split": "heldout",
+    "question": "What is the total recognized GL revenue in USD for snapshot period 2025-06?",
+    "expected": 1194678.0,
+    "verification_sql": "SELECT SUM(recognized_gl_revenue_usd) FROM exec_reporting.monthly_revenue_posture WHERE snapshot_period = '2025-06'",
+    "category": "reconciliation",
+    "answer_type": "scalar",
+    "expected_tables": [
+      "exec_reporting.monthly_revenue_posture"
+    ],
+    "expected_values": [
+      "2025-06"
+    ],
+    "behavior": "answer",
+    "sign_insensitive": false
+  },
+  {
+    "id": "H02",
+    "split": "heldout",
+    "question": "How many receivable debtors have no conglomerate mapping?",
+    "expected": 2,
+    "verification_sql": "SELECT COUNT(*) FROM ledger_erp.receivable_debtors WHERE conglomerate_id IS NULL",
+    "category": "identity",
+    "answer_type": "scalar",
+    "expected_tables": [
+      "ledger_erp.receivable_debtors"
+    ],
+    "expected_values": [],
+    "behavior": "answer",
+    "sign_insensitive": false
+  },
+  {
+    "id": "H03",
+    "split": "heldout",
+    "question": "What is the total gross invoice amount in USD for invoices billed in GBP currency in 2025?",
+    "expected": 1246178.31,
+    "verification_sql": "SELECT SUM(gross_total_usd) FROM ledger_erp.sales_invoices WHERE doc_currency = 'GBP' AND fiscal_period LIKE '2025-%'",
+    "category": "fx",
+    "answer_type": "scalar",
+    "expected_tables": [
+      "ledger_erp.sales_invoices"
+    ],
+    "expected_values": [
+      "GBP"
+    ],
+    "behavior": "answer",
+    "sign_insensitive": false
+  },
+  {
+    "id": "H04",
+    "split": "heldout",
+    "question": "How many deal opportunities are Closed Won with a close fiscal period in 2025?",
+    "expected": 36,
+    "verification_sql": "SELECT COUNT(*) FROM pipeline_crm.deal_opportunities WHERE pipeline_stage = 'Closed_Won' AND close_fiscal_period LIKE '2025-%'",
+    "category": "crm",
+    "answer_type": "scalar",
+    "expected_tables": [
+      "pipeline_crm.deal_opportunities"
+    ],
+    "expected_values": [
+      "Closed_Won"
+    ],
+    "behavior": "answer",
+    "sign_insensitive": false
+  },
+  {
+    "id": "H05",
+    "split": "heldout",
+    "question": "What is the total credit memo amount in USD across receivable ledger events?",
+    "expected": -1620516.76,
+    "verification_sql": "SELECT SUM(signed_amount_usd) FROM ledger_erp.receivable_ledger_events WHERE event_type = 'CREDIT_MEMO'",
+    "category": "credits",
+    "answer_type": "scalar",
+    "expected_tables": [
+      "ledger_erp.receivable_ledger_events"
+    ],
+    "expected_values": [
+      "CREDIT_MEMO"
+    ],
+    "behavior": "answer",
+    "sign_insensitive": true
+  },
+  {
+    "id": "H06",
+    "split": "heldout",
+    "question": "What is the average win probability percentage of deals in the Best Case stage?",
+    "expected": 65.0,
+    "verification_sql": "SELECT AVG(win_probability_pct) FROM pipeline_crm.deal_opportunities WHERE pipeline_stage = 'Best_Case'",
+    "category": "crm",
+    "answer_type": "scalar",
+    "expected_tables": [
+      "pipeline_crm.deal_opportunities"
+    ],
+    "expected_values": [
+      "Best_Case"
+    ],
+    "behavior": "answer",
+    "sign_insensitive": false
+  },
+  {
+    "id": "H07",
+    "split": "heldout",
+    "question": "What is the total invoice subtotal in USD by legal entity for 2025, excluding VOID invoices?",
+    "expected": {
+      "AETH-DE": 2529984.77,
+      "AETH-SG": 1402695.33,
+      "AETH-UK": 980600.19,
+      "AETH-US": 10829298.8
+    },
+    "verification_sql": "SELECT legal_entity_code, SUM(subtotal_amount_usd) FROM ledger_erp.sales_invoices WHERE fiscal_period LIKE '2025-%' AND settlement_status <> 'VOID' GROUP BY legal_entity_code",
+    "category": "revenue",
+    "answer_type": "grouped",
+    "expected_tables": [
+      "ledger_erp.sales_invoices"
+    ],
+    "expected_values": [
+      "VOID"
+    ],
+    "behavior": "answer",
+    "sign_insensitive": false
+  },
+  {
+    "id": "H08",
+    "split": "heldout",
+    "question": "Which are the top 5 conglomerates by total invoice subtotal in USD, excluding VOID invoices?",
+    "expected": {
+      "Wrenford Industries": 2530217.52,
+      "Vantage Holdings": 2404886.38,
+      "Elmstead Mutual": 2134020.79,
+      "Corvant Manufacturing": 1957300.33,
+      "Orchard Retail Co.": 1780269.29
+    },
+    "verification_sql": "SELECT c.conglomerate_name, SUM(i.subtotal_amount_usd) s FROM ledger_erp.sales_invoices i JOIN ledger_erp.receivable_debtors d ON d.debtor_id = i.debtor_id JOIN master_ref.client_conglomerates c ON c.conglomerate_id = d.conglomerate_id WHERE i.settlement_status <> 'VOID' GROUP BY c.conglomerate_name ORDER BY s DESC LIMIT 5",
+    "category": "cross_domain",
+    "answer_type": "grouped",
+    "expected_tables": [
+      "ledger_erp.sales_invoices",
+      "ledger_erp.receivable_debtors",
+      "master_ref.client_conglomerates"
+    ],
+    "expected_values": [
+      "VOID"
+    ],
+    "behavior": "answer",
+    "sign_insensitive": false
+  },
+  {
+    "id": "H09",
+    "split": "heldout",
+    "question": "What is the total combined outlook in USD for as of period 2025-12?",
+    "expected": 14873294.83,
+    "verification_sql": "SELECT SUM(combined_outlook_usd) FROM exec_reporting.horizon_revenue_outlook WHERE as_of_period = '2025-12'",
+    "category": "reporting",
+    "answer_type": "scalar",
+    "expected_tables": [
+      "exec_reporting.horizon_revenue_outlook"
+    ],
+    "expected_values": [
+      "2025-12"
+    ],
+    "behavior": "answer",
+    "sign_insensitive": false
+  },
+  {
+    "id": "H10",
+    "split": "heldout",
+    "question": "How many ingestion batches have a FAILED run status?",
+    "expected": 11,
+    "verification_sql": "SELECT COUNT(*) FROM data_ops.ingestion_batches WHERE run_status = 'FAILED'",
+    "category": "ops",
+    "answer_type": "scalar",
+    "expected_tables": [
+      "data_ops.ingestion_batches"
+    ],
+    "expected_values": [
+      "FAILED"
+    ],
+    "behavior": "answer",
+    "sign_insensitive": false
+  },
+  {
+    "id": "H11",
+    "split": "heldout",
+    "question": "What is the total annual quota in USD for sales reps with the Enterprise AE role?",
+    "expected": 19800000.0,
+    "verification_sql": "SELECT SUM(annual_quota_usd) FROM pipeline_crm.quota_carriers WHERE role_title = 'Enterprise_AE'",
+    "category": "crm",
+    "answer_type": "scalar",
+    "expected_tables": [
+      "pipeline_crm.quota_carriers"
+    ],
+    "expected_values": [
+      "Enterprise_AE"
+    ],
+    "behavior": "answer",
+    "sign_insensitive": false
+  },
+  {
+    "id": "H12",
+    "split": "heldout",
+    "question": "What is the total open pipeline weighted USD by region for snapshot period 2025-12?",
+    "expected": {
+      "Americas": 2880695.01,
+      "Asia Pacific": 231240.0,
+      "Europe, Middle East & Africa": 915140.0
+    },
+    "verification_sql": "SELECT n.canonical_label, SUM(m.open_pipeline_weighted_usd) FROM exec_reporting.monthly_revenue_posture m JOIN master_ref.taxonomy_nodes n ON n.node_id = m.region_node_id WHERE m.snapshot_period = '2025-12' GROUP BY n.canonical_label",
+    "category": "reporting",
+    "answer_type": "grouped",
+    "expected_tables": [
+      "exec_reporting.monthly_revenue_posture"
+    ],
+    "expected_values": [
+      "2025-12"
+    ],
+    "behavior": "answer",
+    "sign_insensitive": false
+  },
+  {
+    "id": "H13",
+    "split": "heldout",
+    "question": "What was our revenue last year?",
+    "expected": null,
+    "verification_sql": "-- ambiguous: invoiced vs recognized vs contracted",
+    "category": "ambiguity",
+    "answer_type": "scalar",
+    "expected_tables": [],
+    "expected_values": [],
+    "behavior": "flag_ambiguity",
+    "sign_insensitive": false
+  },
+  {
+    "id": "H14",
+    "split": "heldout",
+    "question": "What is the total debit amount in USD of journal postings for POSTED vouchers in fiscal period 2025-06?",
+    "expected": 5593579.0,
+    "verification_sql": "SELECT SUM(p.debit_amount_usd) FROM ledger_erp.journal_postings p JOIN ledger_erp.journal_vouchers v ON v.voucher_id = p.voucher_id WHERE v.posting_status = 'POSTED' AND v.fiscal_period = '2025-06'",
+    "category": "reconciliation",
+    "answer_type": "scalar",
+    "expected_tables": [
+      "ledger_erp.journal_postings",
+      "ledger_erp.journal_vouchers"
+    ],
+    "expected_values": [
+      "POSTED",
+      "2025-06"
+    ],
+    "behavior": "answer",
+    "sign_insensitive": false
+  }
+]
