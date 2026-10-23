@@ -3,7 +3,8 @@
 Global:     UDRE_LLM_PROVIDER (anthropic | openai | offline), UDRE_LLM_BASE_URL, UDRE_LLM_API_KEY,
             UDRE_LLM_MODEL, UDRE_LLM_TIMEOUT_S, UDRE_LLM_MAX_RETRIES, UDRE_LLM_MAX_TOKENS,
             UDRE_LLM_INPUT_COST_PER_MTOK, UDRE_LLM_OUTPUT_COST_PER_MTOK
-Per agent:  UDRE_EXPLORER_LLM_<NAME> / UDRE_HERCULES_LLM_<NAME> override the global value.
+Per role:   UDRE_<ROLE>_LLM_<NAME> overrides the global value; roles are explorer, hercules, adjudicator,
+            structured (adjudicator falls back to it) and light.
 
 With no provider, URL, key or model configured the engine runs in explicit offline
 (deterministic) mode.  Model names and credentials are never hardcoded.
@@ -34,8 +35,13 @@ def _load_dotenv() -> None:
 
 
 # Defaults = deployments verified on the configured Foundry resource (scripts/probe_foundry.py, 23 Oct 2026).
-# Override per agent with UDRE_EXPLORER_LLM_MODEL / UDRE_HERCULES_LLM_MODEL / UDRE_ADJUDICATOR_LLM_MODEL.
-FOUNDRY_DEFAULT_DEPLOYMENTS = {"explorer": "claude-opus-4-6", "hercules": "claude-sonnet-5", "adjudicator": "gpt-5.6-sol"}
+# Routing policy: both investigating agents use the strongest model; structured outputs (verdicts, JSON
+# extraction) use the OpenAI model; "light" is for cheap understanding/summarisation tasks.
+# Override with UDRE_<ROLE>_LLM_MODEL, e.g. UDRE_HERCULES_LLM_MODEL.
+FOUNDRY_DEFAULT_DEPLOYMENTS = {"explorer": "claude-opus-4-6", "hercules": "claude-opus-4-6", "adjudicator": "gpt-5.6-sol",
+                               "structured": "gpt-5.6-sol", "light": "claude-sonnet-5"}
+# A role without its own UDRE_<ROLE>_LLM_* value inherits from this role before the global UDRE_LLM_* value.
+ROLE_FALLBACK = {"adjudicator": "structured"}
 
 
 def foundry_credentials() -> tuple:
@@ -83,19 +89,22 @@ class LLMSettings:
     def from_env(cls, agent: Optional[str] = None) -> "LLMSettings":
         _load_dotenv()
 
+        role = (agent or "").lower()
+        chain = [r for r in (role, ROLE_FALLBACK.get(role)) if r]
+
         def get(name: str, default: str = "") -> str:
-            if agent:
-                v = os.environ.get(f"UDRE_{agent.upper()}_LLM_{name}")
+            for r in chain:
+                v = os.environ.get(f"UDRE_{r.upper()}_LLM_{name}")
                 if v:
                     return v
             return os.environ.get(f"UDRE_LLM_{name}", default)
 
         base_url, model, api_key = get("BASE_URL"), get("MODEL"), get("API_KEY")
-        if not base_url:  # Microsoft Foundry: one resource, per-agent deployments, route chosen by model family
+        if not base_url:  # Microsoft Foundry: one resource, per-role deployments, route chosen by model family
             endpoint, fkey = foundry_credentials()
             if endpoint and fkey:
                 host = endpoint.split("/")[2]
-                model = model or FOUNDRY_DEFAULT_DEPLOYMENTS.get((agent or "").lower(), "")
+                model = model or next((FOUNDRY_DEFAULT_DEPLOYMENTS[r] for r in chain if r in FOUNDRY_DEFAULT_DEPLOYMENTS), "")
                 api_key = api_key or fkey
                 base_url = (f"https://{host}/anthropic/v1/messages" if model.lower().startswith("claude")
                             else f"https://{host}/openai/v1/chat/completions")

@@ -34,7 +34,7 @@ flowchart LR
   A --> M[Watermarks + source versions<br/>stale answers flagged]
   A -. policy trigger .-> B[Stage B agent analysis<br/>off by default]
   Q[POST /ask/stream] --> MAN[Version manifest + PG snapshot]
-  MAN --> EX[Explorer · Opus 4.6] & HE[Hercules · Sonnet 5]
+  MAN --> EX[Explorer · Opus 4.6] & HE[Hercules · Opus 4.6]
   EX & HE --> DV[Deterministic validators] --> ADJ[GPT-5.6 Sol adjudicator<br/>≤1 targeted verification query]
   ADJ --> FIN[Consistency check · artifacts · answer record]
 ```
@@ -125,11 +125,16 @@ Each question resolves a **version manifest**: for every source, its `data_versi
 
 ## Models (Microsoft Foundry)
 
-| Agent | Default deployment | Route | Override |
+Routing policy: the two investigating agents do the important work, so both use the strongest model. Structured outputs go to the OpenAI model. Sonnet is reserved for lightweight understanding and summarisation tasks.
+
+| Role | Default deployment | Route | Override |
 |---|---|---|---|
 | Explorer | `claude-opus-4-6` | `/anthropic/v1/messages` | `UDRE_EXPLORER_LLM_MODEL` |
-| Hercules | `claude-sonnet-5` | `/anthropic/v1/messages` | `UDRE_HERCULES_LLM_MODEL` |
-| Adjudicator | `gpt-5.6-sol` | `/openai/v1/chat/completions` | `UDRE_ADJUDICATOR_LLM_MODEL` |
+| Hercules | `claude-opus-4-6` | `/anthropic/v1/messages` | `UDRE_HERCULES_LLM_MODEL` |
+| Structured output (adjudicator verdict) | `gpt-5.6-sol` | `/openai/v1/chat/completions` | `UDRE_STRUCTURED_LLM_MODEL` (or `UDRE_ADJUDICATOR_LLM_MODEL`) |
+| Light tasks | `claude-sonnet-5` | `/anthropic/v1/messages` | `UDRE_LIGHT_LLM_MODEL` |
+
+The light role is configured, but no pipeline step calls an LLM for lightweight work yet: question parsing, Stage A and summaries are deterministic. Both agents now run on the same model, so their independence comes from different strategies, contexts and prompts (tool-driven exploration versus compressed full context) rather than different model families.
 
 The endpoint and key come from `UDRE_FOUNDRY_ENDPOINT` and `UDRE_FOUNDRY_API_KEY`. Any `UDRE_<AGENT>_LLM_<NAME>` setting (provider, base URL, key, timeout, retries, max tokens, prices) overrides the global value. System prompts are in `udre/agents/prompts.py`. `python scripts/probe_foundry.py` checks the deployments without printing secrets. `GET /runtime/models` shows what is active.
 
@@ -196,7 +201,7 @@ Stop a running dev backend before running the suite. Its event worker polls the 
 * Stage B policy gating.
 * Targeted knowledge refresh, cache invalidation and stale-answer flags.
 * Version manifests, Postgres snapshot consistency, and retry on version change.
-* Per-agent Foundry models with the specified prompts. Verified live: Opus 4.6 and Sonnet 5 both answered 13 for "How many invoices have settlement status OVERDUE?", which matches the database, and GPT-5.6 Sol selected the result over HTTP in about 36 s.
+* Per-agent Foundry models with the specified prompts. Verified live with Opus 4.6 on both agents: both answered 13 for "How many invoices have settlement status OVERDUE?", which matches the database, using the same SQL and a consistent snapshot. GPT-5.6 Sol selected the result in about 46 s. Explorer used about 24.5k input tokens and Hercules about 35.2k.
 * GPT adjudicator with one targeted verification query, plus guards.
 * File store, workspaces, artifacts and the local sandbox.
 * The new API endpoints.
