@@ -40,18 +40,23 @@ class ExplorerAgent:
 
     def run(self, question: str, session: ToolSession, on_event=None) -> AgentReasoningCandidate:
         """LLM tool-calling investigation when a provider is configured; otherwise the deterministic planner."""
+        if on_event and session.on_event is None:
+            session.on_event = on_event
         if self.llm is None:
             return self.run_deterministic(question, session)
         try:
             return asyncio.run(self.arun_llm(question, session, on_event))
         except LLMUnavailable as exc:
-            fresh = ToolSession(session.toolbox, session.ctx, session.agent, max_calls=session.max_calls)
+            fresh = ToolSession(session.toolbox, session.ctx, session.agent, max_calls=session.max_calls, run_id=session.run_id,
+                                on_event=session.on_event)
             cand = self.run_deterministic(question, fresh)
             cand.reasoning_mode, cand.failure = "deterministic_fallback", f"LLM unavailable: {exc}"
             return cand
 
     async def arun_llm(self, question: str, session: ToolSession, on_event=None) -> AgentReasoningCandidate:
-        from udre.agents.llm_agent import TOOL_SPECS, LLMInvestigation, candidate_from_submission, serialize_result
+        import json as _json
+
+        from udre.agents.llm_agent import LLMInvestigation, available_tools, candidate_from_submission, serialize_result
         from udre.agents.prompts import EXPLORER_SYSTEM, TRUST_RULES
 
         t0 = time.perf_counter()
@@ -61,13 +66,16 @@ class ExplorerAgent:
         lines = [f"- {c['source_id']}:{c['collection']} | rows={c.get('rows')} | {c.get('summary', '')[:120]}"
                  + (f" | metrics={','.join(c.get('metrics', [])[:5])}" if c.get("metrics") else "")
                  + (f" | mode={c.get('provenance_mode')}" if c.get("provenance_mode") else "") for c in catalog]
-        user = (f"Question: {question}\n\nLightweight collection catalog (load details progressively):\n"
+        manifest = session.ctx.manifest or {}
+        user = (f"Question: {question}\n\nData-version manifest (both agents use these versions):\n"
+                + serialize_result("manifest", {k: manifest.get(k) for k in ("sources", "workspace_files", "digest")})
+                + "\n\nLightweight collection catalog (load details progressively):\n"
                 + serialize_result("collection_catalog", {"collections": "\n".join(lines)}) + "\n\nVerified knowledge:\n"
                 + serialize_result("lookup_knowledge", knowledge)
                 + "\n\nInvestigate with tools, keep explicit state, and submit a grounded candidate.")
         system = EXPLORER_SYSTEM.format(skill=skill["instructions"], trust=TRUST_RULES)
         loop = LLMInvestigation(self.llm, self.name, system, session, max_turns=self.max_turns, on_event=on_event)
-        sub, final = await loop.run(user, list(TOOL_SPECS))
+        sub, final = await loop.run(user, available_tools(session))
         sid = sub.source_id if sub else ""
         colls = session.toolbox.gateway.collections(session.ctx, sid) if sid else []
         dialect = session.toolbox.gateway.adapter(session.ctx, sid).dialect if sid else None

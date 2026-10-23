@@ -37,9 +37,12 @@ class AnthropicMessagesProvider(LLMProvider):
         self._version = anthropic_version
         self._transport = transport
 
+    _omit_temperature = False
+
     async def _call(self, system, messages, tools, tool_choice, max_tokens) -> LLMResponse:
-        body: Dict[str, Any] = {"model": self.model, "max_tokens": max_tokens, "temperature": self.temperature,
-                                "system": system, "messages": messages}
+        body: Dict[str, Any] = {"model": self.model, "max_tokens": max_tokens, "system": system, "messages": messages}
+        if not self._omit_temperature:
+            body["temperature"] = self.temperature
         if tools:
             body["tools"] = [{"name": t.name, "description": t.description, "input_schema": t.input_schema} for t in tools]
             if tool_choice:
@@ -54,6 +57,9 @@ class AnthropicMessagesProvider(LLMProvider):
             raise RetryableError(f"transport error: {type(exc).__name__}") from exc
         if resp.status_code in RETRYABLE_STATUS:
             raise RetryableError(f"HTTP {resp.status_code}", _retry_after(resp))
+        if resp.status_code == 400 and "temperature" in resp.text and not self._omit_temperature:
+            self._omit_temperature = True  # some deployments reject sampling parameters; retry once without them
+            return await self._call(system, messages, tools, tool_choice, max_tokens)
         if resp.status_code >= 400:
             raise LLMUnavailable(f"HTTP {resp.status_code}: {redact(resp.text[:300], [self._key])}")
         data = resp.json()
@@ -102,8 +108,9 @@ class OpenAIChatProvider(LLMProvider):
         return out
 
     async def _call(self, system, messages, tools, tool_choice, max_tokens) -> LLMResponse:
-        body: Dict[str, Any] = {"model": self.model, "max_tokens": max_tokens, "temperature": self.temperature,
-                                "messages": self._to_openai(system, messages)}
+        body: Dict[str, Any] = {"model": self.model, "max_completion_tokens": max_tokens, "messages": self._to_openai(system, messages)}
+        if not self.model.lower().startswith(("gpt-5", "o1", "o3", "o4")):  # reasoning models only accept the default
+            body["temperature"] = self.temperature
         if tools:
             body["tools"] = [{"type": "function", "function": {"name": t.name, "description": t.description,
                                                                "parameters": t.input_schema}} for t in tools]

@@ -51,6 +51,10 @@ class UDREState(TypedDict, total=False):
     followup: Dict[str, Any]
     exports: List[Dict[str, Any]]
     persisted: Dict[str, Any]
+    manifest: Dict[str, Any]
+    consistency: Dict[str, Any]
+    answer_id: str
+    artifacts: List[Dict[str, Any]]
     trace: Annotated[List[Dict[str, Any]], operator.add]
 
 
@@ -68,8 +72,25 @@ class DualPathWorkflow:
         self._sinks: Dict[str, Any] = {}
         self._events: Dict[str, List[Dict[str, Any]]] = {}
         self._ev_lock = threading.Lock()
+        self._leases: Dict[str, Any] = {}
         self.checkpointer = InMemorySaver()
         self.graph = self._build().compile(checkpointer=self.checkpointer)
+
+    def _wrap(self, name: str, fn):
+        """Emit real node start/finish events (with the node's own trace data) around every graph node."""
+        def node(state: UDREState) -> Dict[str, Any]:
+            emit = self._sink(state["request_id"])
+            emit({"event": "node", "node": name, "status": "started", "ts": round(time.time(), 3)})
+            try:
+                out = fn(state)
+            except Exception as exc:
+                emit({"event": "node", "node": name, "status": "failed", "error": f"{type(exc).__name__}: {exc}"[:400]})
+                raise
+            detail = (out.get("trace") or [{}])[-1] if isinstance(out, dict) else {}
+            emit({"event": "node", "node": name, "status": "finished", "ts": round(time.time(), 3),
+                  **{k: v for k, v in detail.items() if k != "node"}})
+            return out
+        return node
 
     def _sink(self, request_id: str):
         def emit(event: Dict[str, Any]) -> None:
@@ -110,7 +131,19 @@ class DualPathWorkflow:
             # incremental: ontology build and reference generation are no-ops when nothing changed
             prep = self.e.prepare_source(ctx, sid)
             versions[sid] = prep["ontology"]["schema_version"]
-        return {"sources": sources, "versions": versions, "trace": _t("resolve_sources", t0, sources=sources)}
+        from udre.runtime.versions import SnapshotLeases, resolve_manifest
+
+        manifest = resolve_manifest(self.e, ctx, sources)
+        if ctx.manifest.get("workspace_files"):
+            manifest["workspace_files"] = ctx.manifest["workspace_files"]
+        leases = SnapshotLeases()
+        leases.open(self.e, ctx, manifest)  # both agents share this context, so they read the same snapshot
+        self._leases[state["request_id"]] = leases
+        ctx.manifest = manifest
+        self._sink(state["request_id"])({"event": "manifest", "manifest": manifest})
+        return {"sources": sources, "versions": versions, "manifest": manifest,
+                "trace": _t("resolve_sources", t0, sources=sources, manifest_digest=manifest["digest"],
+                            consistency={k: v["consistency"] for k, v in manifest["sources"].items()})}
 
     def retrieve_knowledge(self, state: UDREState) -> Dict[str, Any]:
         t0 = time.perf_counter()
@@ -132,9 +165,10 @@ class DualPathWorkflow:
 
     def explorer(self, state: UDREState) -> Dict[str, Any]:
         t0 = time.perf_counter()
-        session = ToolSession(self._toolbox(state), self._ctx(state), "Explorer", max_calls=self.e.settings.explorer_max_steps * 3)
+        emit = self._sink(state["request_id"])
+        session = ToolSession(self._toolbox(state), self._ctx(state), "Explorer", max_calls=self.e.settings.explorer_max_steps * 3,
+                              run_id=state["request_id"], on_event=emit)
         try:
-            emit = self._sink(state["request_id"])
             emit({"agent": "Explorer", "event": "started", "mode": "llm" if self.e.explorer.llm else "deterministic_offline"})
             cand = self.e.explorer.run(state["question"], session, on_event=emit)
             emit({"agent": "Explorer", "event": "candidate", "value": str(cand.structured_value)[:200], "mode": cand.reasoning_mode})
@@ -149,10 +183,10 @@ class DualPathWorkflow:
     def hercules(self, state: UDREState) -> Dict[str, Any]:
         t0 = time.perf_counter()
         ctx = self._ctx(state)
-        session = ToolSession(self._toolbox(state), ctx, "Hercules", max_calls=30)
+        emit = self._sink(state["request_id"])
+        session = ToolSession(self._toolbox(state), ctx, "Hercules", max_calls=30, run_id=state["request_id"], on_event=emit)
         try:
             compiled = self.e.compiled_context(ctx, use_memory=bool(state.get("use_memory")))
-            emit = self._sink(state["request_id"])
             emit({"agent": "Hercules", "event": "started", "mode": "llm" if self.e.hercules.llm else "deterministic_offline"})
             cand = self.e.hercules.run(state["question"], session, compiled, on_event=emit)
             emit({"agent": "Hercules", "event": "candidate", "value": str(cand.structured_value)[:200], "mode": cand.reasoning_mode})
@@ -216,6 +250,33 @@ class DualPathWorkflow:
             decision = self.e.adjudicator.adjudicate(ctx, state["question"], cands, findings)
         return {"decision": decision.model_dump(mode="json"),
                 "trace": _t("adjudicate", t0, path=decision.selected_path, status=decision.agreement_status)}
+
+    def llm_adjudicate(self, state: UDREState) -> Dict[str, Any]:
+        """GPT adjudication over executed evidence, with at most one targeted verification query (guards in code)."""
+        t0 = time.perf_counter()
+        ctx = self._ctx(state)
+        cands = {n: AgentReasoningCandidate(**state[k]) for k, n in (("explorer_candidate", "Explorer"),
+                                                                     ("hercules_candidate", "Hercules")) if state.get(k)}
+        det = AdjudicationDecision(**state["decision"])
+        if not cands or self.e.llm_adjudicator is None:
+            return {"trace": _t("llm_adjudicate", t0, skipped="not configured" if self.e.llm_adjudicator is None else "no candidates")}
+        from udre.runtime.versions import check_consistency
+
+        findings = {n: [ValidationFinding(**f) for f in fs] for n, fs in state.get("findings", {}).items()}
+        consistency = check_consistency(self.e, ctx, state.get("manifest") or {})
+        try:
+            d = self.e.llm_adjudicator.adjudicate(ctx, state["question"], cands, findings, det, consistency, state.get("manifest") or {},
+                                                  on_event=self._sink(state["request_id"]))
+        except Exception as exc:  # LLM unavailable: deterministic decision stands, and says so
+            d = det.model_copy(update={"llm_verdict": {"error": f"{type(exc).__name__}: {str(exc)[:200]}",
+                                                       "fallback": "deterministic adjudication"}})
+        return {"decision": d.model_dump(mode="json"),
+                "trace": _t("llm_adjudicate", t0, path=d.selected_path, status=d.agreement_status,
+                            verdict=(d.llm_verdict or {}).get("status"), overridden=(d.llm_verdict or {}).get("overridden"),
+                            verification_actions=len(d.verification_actions))}
+
+    def after_adjudicate(self, state: UDREState) -> str:
+        return "llm_adjudicate" if self.e.llm_adjudicator is not None else self.needs_followup(state)
 
     def needs_followup(self, state: UDREState) -> str:
         d = state.get("decision", {})
@@ -297,20 +358,61 @@ class DualPathWorkflow:
                     "assumptions": d.get("unresolved_assumptions", [])}
             exports.append(ToolBox(self.e.gateway, self.e.kg, None, self.e.settings.exports_dir).export_results(
                 d.get("final_structured_data") or [], fmt, name=state["question"][:40], metadata=meta))
-        return {"persisted": persisted, "exports": exports, "trace": _t("finalize", t0, persisted=persisted)}
+        # source-version consistency, snapshot release, sandbox teardown
+        from pathlib import Path
+
+        from udre.gateway.sql_guard import analyze
+        from udre.runtime.versions import check_consistency
+
+        consistency = check_consistency(self.e, ctx, state.get("manifest") or {})
+        leases = self._leases.pop(state["request_id"], None)
+        if leases:
+            leases.close()
+        if getattr(self.e, "sandbox", None):
+            self.e.sandbox.close_run(state["request_id"])
+        if consistency["warnings"]:
+            d = dict(d, unresolved_assumptions=list(d.get("unresolved_assumptions", [])) + consistency["warnings"])
+        artifacts = []
+        if getattr(self.e, "files", None):
+            for x in exports:
+                rec = self.e.files.save_bytes(ctx.tenant_id, ctx.user_id, Path(x["path"]).name, Path(x["path"]).read_bytes(),
+                                              kind="artifact", run_id=state["request_id"], origin=f"export:{x['format']}")
+                artifacts.append(rec.public())
+            artifacts += [r.public() for r in self.e.files.list(ctx.tenant_id, ctx.user_id, kind="artifact", run_id=state["request_id"])
+                          if r.origin and r.origin.startswith("sandbox:")]
+        answer_id = None
+        if getattr(self.e, "runtime_store", None) and d.get("winning_query"):
+            try:
+                dialect = self.e.gateway.adapter(ctx, d["winning_source_id"]).dialect
+                tables = sorted(analyze(d["winning_query"], dialect).tables)
+            except Exception:
+                tables = []
+            answer_id = self.e.runtime_store.save_answer(ctx.tenant_id, state["question"], state.get("manifest") or {},
+                                                         [d["winning_source_id"]], tables,
+                                                         {k: d.get(k) for k in ("final_answer", "verification_status", "selected_path",
+                                                                                "winning_query", "agreement_status")})
+        out = {"persisted": persisted, "exports": exports, "consistency": consistency, "artifacts": artifacts,
+               "trace": _t("finalize", t0, persisted=persisted, consistency=consistency["status"], artifacts=len(artifacts))}
+        if answer_id:
+            out["answer_id"] = answer_id
+        if consistency["warnings"]:
+            out["decision"] = d
+        return out
 
     # ------------------------------------------------------------------ graph
     def _build(self) -> StateGraph:
         g = StateGraph(UDREState)
-        g.add_node("parse_request", self.parse_request)
-        g.add_node("resolve_sources", self.resolve_sources, retry_policy=TRANSIENT)
-        g.add_node("retrieve_knowledge", self.retrieve_knowledge, retry_policy=TRANSIENT)
-        g.add_node("explorer", self.explorer, retry_policy=TRANSIENT)
-        g.add_node("hercules", self.hercules, retry_policy=TRANSIENT)
-        g.add_node("verify", self.verify, retry_policy=TRANSIENT)
-        g.add_node("adjudicate", self.adjudicate)
-        g.add_node("targeted_followup", self.targeted_followup, retry_policy=TRANSIENT)
-        g.add_node("finalize", self.finalize, retry_policy=TRANSIENT)
+        w = self._wrap
+        g.add_node("parse_request", w("parse_request", self.parse_request))
+        g.add_node("resolve_sources", w("resolve_sources", self.resolve_sources), retry_policy=TRANSIENT)
+        g.add_node("retrieve_knowledge", w("retrieve_knowledge", self.retrieve_knowledge), retry_policy=TRANSIENT)
+        g.add_node("explorer", w("explorer", self.explorer), retry_policy=TRANSIENT)
+        g.add_node("hercules", w("hercules", self.hercules), retry_policy=TRANSIENT)
+        g.add_node("verify", w("verify", self.verify), retry_policy=TRANSIENT)
+        g.add_node("adjudicate", w("adjudicate", self.adjudicate))
+        g.add_node("llm_adjudicate", w("llm_adjudicate", self.llm_adjudicate))
+        g.add_node("targeted_followup", w("targeted_followup", self.targeted_followup), retry_policy=TRANSIENT)
+        g.add_node("finalize", w("finalize", self.finalize), retry_policy=TRANSIENT)
         g.add_edge(START, "parse_request")
         g.add_edge("parse_request", "resolve_sources")
         g.add_edge("resolve_sources", "retrieve_knowledge")
@@ -318,15 +420,21 @@ class DualPathWorkflow:
         g.add_edge("explorer", "verify")
         g.add_edge("hercules", "verify")
         g.add_edge("verify", "adjudicate")
-        g.add_conditional_edges("adjudicate", self.needs_followup, ["targeted_followup", "finalize"])
+        g.add_conditional_edges("adjudicate", self.after_adjudicate, ["llm_adjudicate", "targeted_followup", "finalize"])
+        g.add_conditional_edges("llm_adjudicate", self.needs_followup, ["targeted_followup", "finalize"])
         g.add_edge("targeted_followup", "finalize")
         g.add_edge("finalize", END)
         return g
 
     def run(self, question: str, ctx: AccessContext, mode: str = "dual", use_memory: bool = True,
-            export_formats: Optional[List[str]] = None, on_event=None) -> Dict[str, Any]:
+            export_formats: Optional[List[str]] = None, on_event=None, _retry: int = 1) -> Dict[str, Any]:
+        import copy
+        import os
+
         request_id = uuid.uuid4().hex[:12]
-        self._contexts[request_id] = ctx
+        run_ctx = copy.copy(ctx)  # per-run manifest and snapshots never leak into the caller's context
+        run_ctx.snapshots, run_ctx.manifest = {}, dict(ctx.manifest or {})
+        self._contexts[request_id] = run_ctx
         if on_event:
             self._sinks[request_id] = on_event
         t0 = time.perf_counter()
@@ -338,8 +446,20 @@ class DualPathWorkflow:
         finally:
             self._contexts.pop(request_id, None)
             self._sinks.pop(request_id, None)
+            leases = self._leases.pop(request_id, None)
+            if leases:
+                leases.close()
             with self._ev_lock:
                 events = self._events.pop(request_id, [])
         state["total_ms"] = round((time.perf_counter() - t0) * 1000, 1)
         state["events"] = events
+        state["request_id"] = request_id
+        if (state.get("consistency") or {}).get("status") == "changed_during_run" and _retry > 0 and \
+                os.environ.get("UDRE_RETRY_ON_VERSION_CHANGE", "1") == "1":
+            if on_event:
+                on_event({"event": "retry", "reason": "source version changed during the analysis without a consistent snapshot",
+                          "moved_sources": state["consistency"]["moved_sources"]})
+            retried = self.run(question, ctx, mode, use_memory, export_formats, on_event, _retry=_retry - 1)
+            retried["retried_from"] = request_id
+            return retried
         return state

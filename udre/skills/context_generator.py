@@ -123,7 +123,10 @@ class CollectionContextGenerator:
         return hashlib.sha1(payload.encode()).hexdigest()[:10]
 
     # ------------------------------------------------------------------ generate
-    def generate(self, ctx: AccessContext, source_id: str, force: bool = False) -> GenerationReport:
+    def generate(self, ctx: AccessContext, source_id: str, force: bool = False, only_collections: Optional[List[str]] = None,
+                 data_version: Optional[str] = None) -> GenerationReport:
+        """Generate a new version. With ``only_collections`` (data-only change), the other collections' files are
+        copied forward from the current version unchanged, so only changed collections are re-read."""
         t0 = time.time()
         adapter = self.gateway.adapter(ctx, source_id)  # raises AccessDenied for unauthorized sources
         tenant = ctx.tenant_id
@@ -131,17 +134,32 @@ class CollectionContextGenerator:
         if not source_version:
             raise RuntimeError(f"ontology for {source_id} has not been built for tenant {tenant}")
         colls = self.gateway.collections(ctx, source_id)
-        version = f"{source_version}-{self._inputs_hash(ctx, source_id, source_version, colls)}"
+        inputs = self._inputs_hash(ctx, source_id, source_version, colls)
+        if data_version:
+            inputs = hashlib.sha1(f"{inputs}|{data_version}|{sorted(only_collections or [])}".encode()).hexdigest()[:10]
+        version = f"{source_version}-{inputs}"
         report = GenerationReport(tenant=tenant, source_id=source_id, version=version)
         with self._lock(tenant, source_id):
             cur = self.current(tenant, source_id)
             if cur and cur["version"] == version and not force:
                 report.skipped = True
                 return report
+            copy_forward = bool(only_collections) and cur is not None and cur.get("source_version") == source_version
             data = self._collect(ctx, source_id, source_version, colls)
             files: Dict[str, str] = {}
             for cname in colls:
                 if cname not in data["collections"]:
+                    continue
+                if copy_forward and cname not in only_collections and f"collections/{cname}" in cur["files"]:
+                    for kind in ("collections", "value-profiles"):
+                        old = cur["files"].get(f"{kind}/{cname}")
+                        if old and (self.root / old).exists():
+                            p = self._vdir(kind, tenant, source_id, version) / f"{_safe(cname)}.md"
+                            text = (self.root / old).read_text(encoding="utf-8")
+                            text = re.sub(r'context_version: "[^"]*"', f'context_version: "{version}"\n'
+                                                                       f'carried_forward_from: "{cur["version"]}"', text, count=1)
+                            _atomic_write(p, text)
+                            files[f"{kind}/{cname}"] = str(p.relative_to(self.root))
                     continue
                 md = self._collection_md(ctx, adapter, source_id, cname, source_version, version, data)
                 p = self._vdir("collections", tenant, source_id, version) / f"{_safe(cname)}.md"

@@ -21,7 +21,7 @@ from udre.llm.base import LLMProvider
 
 def _load_dotenv() -> None:
     env = Path(__file__).resolve().parents[2] / ".env"
-    if not env.exists():
+    if not env.exists() or os.environ.get("UDRE_IGNORE_DOTENV") == "1":
         return
     for line in env.read_text(encoding="utf-8").splitlines():
         line = line.strip()
@@ -31,6 +31,33 @@ def _load_dotenv() -> None:
         key = key.strip()
         if key.startswith("UDRE_") and key not in os.environ:
             os.environ[key] = value.strip().strip('"').strip("'")
+
+
+# Defaults = deployments verified on the configured Foundry resource (scripts/probe_foundry.py, 23 Oct 2026).
+# Override per agent with UDRE_EXPLORER_LLM_MODEL / UDRE_HERCULES_LLM_MODEL / UDRE_ADJUDICATOR_LLM_MODEL.
+FOUNDRY_DEFAULT_DEPLOYMENTS = {"explorer": "claude-opus-4-6", "hercules": "claude-sonnet-5", "adjudicator": "gpt-5.6-sol"}
+
+
+def foundry_credentials() -> tuple:
+    """(endpoint, key) for the Microsoft Foundry resource.
+
+    Prefers UDRE_FOUNDRY_ENDPOINT / UDRE_FOUNDRY_API_KEY; falls back to free-form .env lines such as
+    ``... urls = https://<resource>.services.ai.azure.com/...`` and ``api key = <key>``.
+    """
+    _load_dotenv()
+    endpoint, key = os.environ.get("UDRE_FOUNDRY_ENDPOINT", ""), os.environ.get("UDRE_FOUNDRY_API_KEY", "")
+    env = Path(__file__).resolve().parents[2] / ".env"
+    if (not endpoint or not key) and env.exists() and os.environ.get("UDRE_IGNORE_DOTENV") != "1":
+        for line in env.read_text(encoding="utf-8").splitlines():
+            if "=" not in line:
+                continue
+            name, _, value = line.partition("=")
+            name, value = name.strip().lower(), value.strip().strip('"').strip("'")
+            if not endpoint and value.startswith("https://") and "services.ai.azure.com" in value:
+                endpoint = value
+            elif not key and ("api key" in name or name in ("api_key", "apikey", "key")):
+                key = value
+    return endpoint, key
 
 
 @dataclass
@@ -63,9 +90,17 @@ class LLMSettings:
                     return v
             return os.environ.get(f"UDRE_LLM_{name}", default)
 
-        base_url = get("BASE_URL")
+        base_url, model, api_key = get("BASE_URL"), get("MODEL"), get("API_KEY")
+        if not base_url:  # Microsoft Foundry: one resource, per-agent deployments, route chosen by model family
+            endpoint, fkey = foundry_credentials()
+            if endpoint and fkey:
+                host = endpoint.split("/")[2]
+                model = model or FOUNDRY_DEFAULT_DEPLOYMENTS.get((agent or "").lower(), "")
+                api_key = api_key or fkey
+                base_url = (f"https://{host}/anthropic/v1/messages" if model.lower().startswith("claude")
+                            else f"https://{host}/openai/v1/chat/completions")
         provider = get("PROVIDER") or ("anthropic" if "/anthropic" in base_url else "openai" if base_url else "offline")
-        return cls(provider=provider.lower(), base_url=base_url, model=get("MODEL"), api_key=get("API_KEY"),
+        return cls(provider=provider.lower(), base_url=base_url, model=model, api_key=api_key,
                    timeout_s=float(get("TIMEOUT_S", "60")), max_retries=int(get("MAX_RETRIES", "3")),
                    max_tokens=int(get("MAX_TOKENS", "2048")), input_cost_per_mtok=float(get("INPUT_COST_PER_MTOK", "0")),
                    output_cost_per_mtok=float(get("OUTPUT_COST_PER_MTOK", "0")))

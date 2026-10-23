@@ -1,5 +1,10 @@
+import os
 import sys
 from pathlib import Path
+
+# Unit tests never call external LLMs or sandboxes; live smoke tests opt in explicitly (UDRE_LIVE_SMOKE=1).
+os.environ.setdefault("UDRE_REASONING_MODE", "offline")
+os.environ.setdefault("UDRE_SANDBOX", "off")
 
 import psycopg2
 import pytest

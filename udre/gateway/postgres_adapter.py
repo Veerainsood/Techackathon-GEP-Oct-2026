@@ -41,14 +41,21 @@ class PostgresSourceAdapter(SQLSourceAdapter):
                     self._pool_obj = ThreadedConnectionPool(1, 16, self.uri, connect_timeout=5)
         return self._pool_obj
 
-    def _run(self, sql: str, params: Optional[Sequence[Any]] = None, timeout_s: int = 30) -> Tuple[List[str], List[tuple]]:
+    placeholder = "%s"
+
+    def _run(self, sql: str, params: Optional[Sequence[Any]] = None, timeout_s: int = 30,
+             snapshot: Optional[str] = None) -> Tuple[List[str], List[tuple]]:
         pool = self._pool()
         conn = pool.getconn()
         broken = False
         try:
-            if not conn.readonly:
-                conn.set_session(readonly=True, autocommit=False)
+            if snapshot:  # read inside an exported snapshot shared by a whole analysis (consistent view)
+                conn.set_session(isolation_level="REPEATABLE READ", readonly=True, autocommit=False)
+            elif not conn.readonly or conn.isolation_level != psycopg2.extensions.ISOLATION_LEVEL_DEFAULT:
+                conn.set_session(isolation_level="DEFAULT", readonly=True, autocommit=False)
             with conn.cursor() as cur:
+                if snapshot:
+                    cur.execute("SET TRANSACTION SNAPSHOT %s", (snapshot,))
                 cur.execute(f"SET LOCAL statement_timeout = {int(timeout_s * 1000)}")
                 cur.execute(sql, params)
                 cols = [d[0] for d in cur.description] if cur.description else []
@@ -64,6 +71,18 @@ class PostgresSourceAdapter(SQLSourceAdapter):
                 except psycopg2.Error:
                     broken = True
             pool.putconn(conn, close=broken)
+
+    def export_snapshot(self):
+        """Open a REPEATABLE READ transaction and export its snapshot. Returns (snapshot_id, holder connection).
+
+        The holder must stay open while other connections import the snapshot; close it to release.
+        """
+        holder = psycopg2.connect(self.uri, connect_timeout=5)
+        holder.set_session(isolation_level="REPEATABLE READ", readonly=True, autocommit=False)
+        with holder.cursor() as cur:
+            cur.execute("SELECT pg_export_snapshot()")
+            snap = cur.fetchone()[0]
+        return snap, holder
 
     def test_connection(self) -> bool:
         try:

@@ -134,7 +134,7 @@ def test_explorer_llm_loop_selects_tools_and_revises(engine):
     gaps = [o.objective for o in cand.investigation_trace.tool_observations if o.phase.startswith("LLM_TURN")]
     assert "retry with the correct column" in gaps and all(gaps)
     assert cand.llm_usage["calls"] == 6 and cand.llm_usage["input_tokens"] > 0
-    assert any(e["event"] == "tool_call" for e in events) and events[-1]["event"] == "finished"
+    assert any(e["event"] == "tool" for e in events) and events[-1]["event"] == "finished"
     first = provider.requests[0]
     assert "database-investigation" in first["system"] and "Lightweight collection catalog" in first["messages"][0]["content"][0]["text"]
     assert "shared_columns" not in first["messages"][0]["content"][0]["text"]  # no preloaded global context
@@ -197,7 +197,7 @@ def test_dual_path_with_llm_agents_is_independent(engine):
     first = her.requests[0]["messages"][0]["content"][0]["text"]
     assert "Compressed overview" in first and "Inclusion report" in first and "shared_columns" in first
     assert "Hercules" in her.requests[0]["system"] and "Explorer" in exp.requests[0]["system"]
-    assert any(ev["agent"] == "Hercules" and ev["event"] == "tool_call" for ev in state["events"])
+    assert any(ev.get("agent") == "Hercules" and ev["event"] == "tool" for ev in state["events"])
 
 
 def test_llm_outage_falls_back_explicitly(engine):
@@ -261,8 +261,10 @@ def test_openai_provider_translates_tool_calls():
 def test_offline_mode_without_configuration(monkeypatch):
     from udre.llm.config import LLMSettings, build_provider
 
-    for k in ("UDRE_LLM_BASE_URL", "UDRE_LLM_API_KEY", "UDRE_LLM_MODEL", "UDRE_LLM_PROVIDER"):
+    for k in ("UDRE_LLM_BASE_URL", "UDRE_LLM_API_KEY", "UDRE_LLM_MODEL", "UDRE_LLM_PROVIDER", "UDRE_FOUNDRY_ENDPOINT",
+              "UDRE_FOUNDRY_API_KEY", "UDRE_EXPLORER_LLM_MODEL"):
         monkeypatch.delenv(k, raising=False)
+    monkeypatch.setenv("UDRE_IGNORE_DOTENV", "1")
     s = LLMSettings.from_env("explorer")
     assert not s.configured and build_provider(s) is None and "sk" not in repr(s)
 

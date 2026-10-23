@@ -5,7 +5,7 @@ from __future__ import annotations
 import threading
 import time
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Set
+from typing import Any, Dict, List, Optional, Sequence, Set
 
 from udre.contracts.models import QueryExecutionResult, SourceDescriptor
 from udre.gateway.base import DataSourceAdapter
@@ -25,6 +25,8 @@ class AccessContext:
     denied_collections: Set[str] = field(default_factory=set)  # "source_id:collection"
     max_rows: int = 1000
     timeout_s: int = 30
+    snapshots: Dict[str, str] = field(default_factory=dict)  # source_id -> exported snapshot id for this analysis
+    manifest: Dict[str, Any] = field(default_factory=dict)  # source-version manifest the analysis is pinned to
 
 
 @dataclass
@@ -101,27 +103,34 @@ class SourceGateway:
         return [c for c in adapter.discover_collections() if f"{source_id}:{c}" not in ctx.denied_collections]
 
     # -------------------------------------------------------------- execution
-    def execute_query(self, ctx: AccessContext, source_id: str, query: str, max_rows: Optional[int] = None) -> QueryExecutionResult:
+    def execute_query(self, ctx: AccessContext, source_id: str, query: str, max_rows: Optional[int] = None,
+                      params: Optional[Sequence[Any]] = None) -> QueryExecutionResult:
+        """Read-only, bounded execution. ``params`` binds placeholders (adapter.placeholder) via the driver."""
         adapter = self.adapter(ctx, source_id)
         cap = min(max_rows or ctx.max_rows, ctx.max_rows, adapter.descriptor.capabilities.max_rows_limit)
         timeout = min(ctx.timeout_s, adapter.descriptor.capabilities.timeout_seconds)
         if adapter.dialect is None:  # native (non-SQL) source: adapter enforces its own read-only rules
             self._audit(ctx, source_id, "execute_native", query, True)
             return adapter.execute(query, max_rows=cap, timeout_s=timeout)
+        ph = getattr(adapter, "placeholder", "?")
+        analyzable = query.replace(ph, "NULL") if params else query  # placeholders are validated as literals
         try:
-            assert_read_only(query, adapter.dialect)
+            assert_read_only(analyzable, adapter.dialect)
             known = set(adapter.discover_collections())
-            for table in analyze(query, adapter.dialect).tables:
+            for table in analyze(analyzable, adapter.dialect).tables:
                 if table not in known:
                     raise UnsafeQueryError(f"unknown or unauthorized collection: {table}")
                 self.check_collection(ctx, source_id, table)
-            bounded = bound_rows(query, adapter.dialect, cap)
+            bounded = f"SELECT * FROM ({query}) AS _udre_bounded LIMIT {cap + 1}" if params else bound_rows(query, adapter.dialect, cap)
         except (UnsafeQueryError, AccessDenied) as exc:
             self._audit(ctx, source_id, "execute", query, False)
             return QueryExecutionResult(source_id=source_id, query=query, succeeded=False, error_message=f"REJECTED: {exc}")
         self._audit(ctx, source_id, "execute", query, True)
-        result = adapter.execute(bounded, max_rows=cap, timeout_s=timeout)
+        snapshot = ctx.snapshots.get(source_id) if ctx.snapshots else None
+        result = adapter.execute(bounded, max_rows=cap, timeout_s=timeout, params=params, snapshot=snapshot)
         result.query = query
+        if snapshot:
+            result.provenance = dict(result.provenance, consistent_snapshot=True)
         return result
 
     def explain_query(self, ctx: AccessContext, source_id: str, query: str) -> str:

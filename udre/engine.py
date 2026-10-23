@@ -47,6 +47,13 @@ class Engine:
     llm: Any = None
     cross_source: Any = None
     ingestion: Any = None
+    runtime_store: Any = None
+    investigator: Any = None
+    consumer: Any = None
+    files: Any = None
+    sandbox: Any = None
+    workspaces: Any = None
+    llm_adjudicator: Any = None
     _ctx_cache: Dict[Tuple[str, str, bool], CompiledSemanticContext] = field(default_factory=dict)
     _lock: threading.Lock = field(default_factory=threading.Lock)
 
@@ -65,13 +72,70 @@ class Engine:
             return self._ctx_cache[key]
 
     def ask(self, question: str, ctx: Optional[AccessContext] = None, mode: str = "dual", use_memory: bool = True,
-            export_formats: Optional[List[str]] = None) -> Dict[str, Any]:
-        return self.workflow.run(question, ctx or self.default_ctx, mode=mode, use_memory=use_memory,
-                                 export_formats=export_formats)
+            export_formats: Optional[List[str]] = None, workspace_id: Optional[str] = None, on_event=None) -> Dict[str, Any]:
+        ctx = ctx or self.default_ctx
+        if workspace_id:
+            ctx = self.workspaces.context(ctx, workspace_id)
+        return self.workflow.run(question, ctx, mode=mode, use_memory=use_memory, export_formats=export_formats, on_event=on_event)
+
+    def model_config(self) -> Dict[str, Any]:
+        def describe(p):
+            return {"mode": "llm", "provider": p.name, "model": p.model} if p else {"mode": "deterministic_offline"}
+        return {"explorer": describe(self.explorer.llm), "hercules": describe(self.hercules.llm),
+                "adjudicator": describe(self.llm_adjudicator.provider if self.llm_adjudicator else None),
+                "sandbox": self.sandbox.provider if self.sandbox else "off"}
+
+    def invalidate_caches(self, tenant: str, source_id: Optional[str] = None) -> int:
+        """Drop compiled contexts for a tenant (and per-source compiler parts) after data or knowledge changes."""
+        with self._lock:
+            keys = [k for k in self._ctx_cache if k[0] == tenant]
+            for k in keys:
+                del self._ctx_cache[k]
+        if self.compiler is not None:
+            with self.compiler._lock:
+                for k in [k for k in self.compiler._cache if k[0] == tenant and (source_id is None or k[1] == source_id)]:
+                    del self.compiler._cache[k]
+        return len(keys)
+
+    def refresh_collection_profiles(self, ctx: AccessContext, source_id: str, collections: List[str]) -> List[str]:
+        """Re-profile only the given collections and update their Column/Collection nodes (ontology structure untouched)."""
+        from udre.contracts.models import GraphNode, NodeType, VerificationStatus
+        from udre.ontology.builder import is_dimension, is_measure
+
+        adapter = self.gateway.adapter(ctx, source_id)
+        wanted = set(collections) & set(self.gateway.collections(ctx, source_id))
+        nodes = [n for n in self.kg.nodes(NodeType.COLUMN, source_id, ctx.tenant_id) if n["properties"].get("collection") in wanted]
+        if not nodes or not hasattr(adapter, "profile_collection"):
+            return []
+        profiles = {c: adapter.profile_collection(c) for c in wanted}
+        updated = []
+        for n in nodes:
+            p = dict(n["properties"])
+            prof = profiles[p["collection"]].get(p["column"])
+            if prof is None:
+                continue
+            p.update(null_ratio=prof.null_ratio, distinct_count=prof.distinct_count, cardinality_ratio=prof.cardinality_ratio,
+                     min=prof.min_value, max=prof.max_value, mean=prof.mean_value, top_values=prof.top_values[:15],
+                     samples=prof.sample_values[:3], is_dimension=is_dimension(prof),
+                     is_measure=is_measure(p["column"], prof, bool(p.get("is_key"))))
+            updated.append(GraphNode(node_id=n["node_id"], node_type=NodeType(n["node_type"]), label=n["label"], source_id=source_id,
+                                     properties=p, provenance=n["provenance"], verification_status=VerificationStatus(n["verification_status"]),
+                                     schema_version=n["schema_version"], confidence=n["confidence"], evidence_refs=n["evidence_refs"]))
+        self.kg.upsert_nodes(updated, ctx.tenant_id)
+        for c in wanted:
+            node = self.kg.get_node(f"coll:{source_id}:{c}", ctx.tenant_id)
+            if node:
+                props = dict(node["properties"], row_count=next(iter(profiles[c].values())).total_count if profiles[c] else 0)
+                self.kg.upsert_nodes([GraphNode(node_id=node["node_id"], node_type=NodeType.COLLECTION, label=node["label"],
+                                                source_id=source_id, properties=props, provenance=node["provenance"],
+                                                verification_status=VerificationStatus(node["verification_status"]),
+                                                schema_version=node["schema_version"], confidence=node["confidence"],
+                                                evidence_refs=node["evidence_refs"])], ctx.tenant_id)
+        return sorted(wanted)
 
     def toolbox(self, use_memory: bool = True) -> ToolBox:
         return ToolBox(self.gateway, self.kg, self.memory if use_memory else None, self.settings.exports_dir,
-                       contexts=self.contexts, skills=self.skills)
+                       contexts=self.contexts, skills=self.skills, sandbox=self.sandbox, files=self.files)
 
     def prepare_source(self, ctx: AccessContext, source_id: str, force: bool = False) -> Dict[str, Any]:
         """Ontology build (incremental) + collection reference generation for one source."""
@@ -88,18 +152,19 @@ class Engine:
         return {"source": desc.model_dump(), **self.prepare_source(ctx, source_id, force=True)}
 
 
-def _providers(settings: Settings, override: Optional[Tuple[Any, Any]]) -> Tuple[Any, Any]:
+def _providers(settings: Settings, override: Optional[Tuple[Any, ...]]) -> Tuple[Any, Any, Any]:
     if override is not None:
-        return override
+        return (tuple(override) + (None,))[:3]
     if settings.reasoning_mode == "offline":
-        return None, None
+        return None, None, None
     from udre.llm.config import LLMSettings, build_provider
 
     exp, her = build_provider(LLMSettings.from_env("explorer")), build_provider(LLMSettings.from_env("hercules"))
+    adj = build_provider(LLMSettings.from_env("adjudicator"))
     if settings.reasoning_mode == "llm" and not (exp and her):
-        raise RuntimeError("UDRE_REASONING_MODE=llm but no LLM is configured; set UDRE_LLM_BASE_URL, UDRE_LLM_API_KEY "
-                           "and UDRE_LLM_MODEL (or per-agent UDRE_EXPLORER_LLM_* / UDRE_HERCULES_LLM_*)")
-    return exp, her
+        raise RuntimeError("UDRE_REASONING_MODE=llm but no LLM is configured; set UDRE_FOUNDRY_ENDPOINT and UDRE_FOUNDRY_API_KEY "
+                           "(or UDRE_LLM_BASE_URL / UDRE_LLM_API_KEY / UDRE_LLM_MODEL, or per-agent UDRE_<AGENT>_LLM_*)")
+    return exp, her, adj
 
 
 def build_engine(settings: Optional[Settings] = None, register_defaults: bool = True,
@@ -108,7 +173,7 @@ def build_engine(settings: Optional[Settings] = None, register_defaults: bool = 
     from udre.orchestration.workflow import DualPathWorkflow
 
     settings = settings or Settings()
-    explorer_llm, hercules_llm = _providers(settings, llm_providers)
+    explorer_llm, hercules_llm, adjudicator_llm = _providers(settings, llm_providers)
     gateway = SourceGateway()
     if register_defaults:
         gateway.register(PostgresSourceAdapter("finance_pg", pg_uri(settings.data_db), name="Finance warehouse (PostgreSQL)",
@@ -132,5 +197,20 @@ def build_engine(settings: Optional[Settings] = None, register_defaults: bool = 
     engine.contexts = CollectionContextGenerator(gateway, kg, engine.memory, compiler)
     engine.cross_source = CrossSourceMatcher(gateway, kg)
     engine.ingestion = IngestionPipeline(engine)
+    from udre.events.consumer import EventConsumer
+    from udre.events.store import RuntimeStore
+    from udre.runtime.investigator import ChangeInvestigator
+    from udre.runtime.sessions import WorkspaceManager
+    from udre.tools.files import FileStore
+    from udre.tools.sandbox import SandboxManager
+    from udre.verification.llm_adjudicator import LLMAdjudicator
+
+    engine.runtime_store = RuntimeStore(knowledge_uri)
+    engine.investigator = ChangeInvestigator(engine, engine.runtime_store)
+    engine.consumer = EventConsumer(engine.runtime_store, engine.investigator)
+    engine.files = FileStore()
+    engine.sandbox = SandboxManager(engine.files)
+    engine.workspaces = WorkspaceManager(engine)
+    engine.llm_adjudicator = LLMAdjudicator(adjudicator_llm, gateway) if adjudicator_llm else None
     engine.workflow = DualPathWorkflow(engine)
     return engine

@@ -300,3 +300,5 @@ class AdjudicationDecision(BaseModel):
     query_lineage: List[str] = Field(default_factory=list)
     total_latency_ms: float = 0.0
     total_tokens_used: int = 0
+    llm_verdict: Dict[str, Any] = Field(default_factory=dict)
+    verification_actions: List[Dict[str, Any]] = Field(default_factory=list)

@@ -90,7 +90,17 @@ TOOL_SPECS: Dict[str, ToolSpec] = {t.name: t for t in [
     ToolSpec("execute_federated_query", "Combine bounded results from several sources: parts={alias:{source_id,query}}, "
              "combine_sql is DuckDB SQL over the aliases.",
              _schema({"parts": {"type": "object"}, "combine_sql": S}, ["parts", "combine_sql"])),
+    ToolSpec("run_python", "Run Python 3 in your own sandbox (pandas/duckdb available). Pass file_ids to make uploaded files "
+             "available; their sandbox paths are returned and printed. Write report files to the 'out/' folder to return them "
+             "as downloadable artifacts. Use for file inspection, custom computation or complex transformations, not for "
+             "simple SQL questions.",
+             _schema({"code": S, "file_ids": {"type": "array", "items": S}}, ["code"])),
 ]}
+
+
+def available_tools(session: ToolSession) -> List[str]:
+    sandbox = getattr(session.toolbox, "sandbox", None)
+    return [t for t in TOOL_SPECS if t != "run_python" or (sandbox is not None and sandbox.enabled)]
 SUBMIT = ToolSpec("submit_candidate", "Submit your final candidate answer (structured). Call exactly once when done.",
                   CandidateSubmission.model_json_schema())
 
@@ -168,9 +178,7 @@ class LLMInvestigation:
                                  "Continue the investigation with a tool call, or call submit_candidate when the answer is grounded."}]})
                 continue
             results = []
-            for call in resp.tool_calls:
-                self._emit("tool_call", turn=turn, tool=call.name, gap=call.arguments.get("gap"),
-                           args={k: v for k, v in call.arguments.items() if k != "gap"})
+            for call in resp.tool_calls:  # tool executions themselves are streamed by the ToolSession
                 if call.name == "submit_candidate":
                     try:
                         sub = CandidateSubmission.model_validate(call.arguments)
@@ -191,6 +199,8 @@ class LLMInvestigation:
                         continue
                     submission, final_exec = sub, check
                     results.append({"type": "tool_result", "tool_use_id": call.id, "content": "accepted"})
+                    self._emit("submission", turn=turn, sql=sub.sql, source_id=sub.source_id, rows=(check.get("rows") or [])[:8],
+                               columns=check.get("columns"), interpretation=sub.interpreted_question)
                     continue
                 if call.name not in tools:
                     results.append({"type": "tool_result", "tool_use_id": call.id, "is_error": True,
@@ -202,7 +212,6 @@ class LLMInvestigation:
                     budget_hit = True
                     content, is_err = f"Tool budget exhausted ({exc}). Submit your best grounded candidate now.", True
                 results.append({"type": "tool_result", "tool_use_id": call.id, "content": content, "is_error": is_err})
-                self._emit("tool_result", turn=turn, tool=call.name, error=is_err, preview=content[:300])
             messages.append({"role": "user", "content": results})
             if submission is not None:
                 break

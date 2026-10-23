@@ -140,11 +140,14 @@ class SQLSourceAdapter(DataSourceAdapter):
     @abstractmethod
     def _run(self, sql: str, params: Optional[Sequence[Any]] = None, timeout_s: int = 30) -> Tuple[List[str], List[tuple]]: ...
 
+    placeholder = "?"  # DB-API paramstyle of the underlying driver
+
     # ------------------------------------------------------------ execution
-    def execute(self, query: str, max_rows: int = 1000, timeout_s: int = 30) -> QueryExecutionResult:
+    def execute(self, query: str, max_rows: int = 1000, timeout_s: int = 30, params: Optional[Sequence[Any]] = None,
+                snapshot: Optional[str] = None) -> QueryExecutionResult:
         t0 = time.perf_counter()
         try:
-            cols, rows = self._run(query, timeout_s=timeout_s)
+            cols, rows = self._run(query, params=params, timeout_s=timeout_s, **({"snapshot": snapshot} if snapshot else {}))
             truncated = len(rows) > max_rows
             rows = rows[:max_rows]
             return QueryExecutionResult(

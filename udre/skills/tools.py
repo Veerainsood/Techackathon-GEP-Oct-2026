@@ -28,7 +28,8 @@ from udre.ontology.graph import KnowledgeGraph
 TOOL_NAMES = ["discover_sources", "discover_collections", "describe_collection", "inspect_column",
               "search_column_values", "sample_rows", "explore_relationships", "lookup_knowledge", "execute_query",
               "explain_query", "compare_results", "export_results",
-              "list_skills", "load_skill", "list_collection_contexts", "load_collection_context", "execute_federated_query"]
+              "list_skills", "load_skill", "list_collection_contexts", "load_collection_context", "execute_federated_query",
+              "run_python"]
 
 
 class ToolBudgetExceeded(RuntimeError):
@@ -37,13 +38,28 @@ class ToolBudgetExceeded(RuntimeError):
 
 class ToolBox:
     def __init__(self, gateway: SourceGateway, kg: KnowledgeGraph, memory: Optional[LearningStore], exports_dir: str,
-                 contexts: Any = None, skills: Any = None):
+                 contexts: Any = None, skills: Any = None, sandbox: Any = None, files: Any = None):
         self.gateway = gateway
         self.kg = kg
         self.memory = memory
         self.exports_dir = exports_dir
         self.contexts = contexts
         self.skills = skills
+        self.sandbox = sandbox
+        self.files = files
+
+    # ------------------------------------------------------------------ sandboxed computation
+    def run_python(self, ctx: AccessContext, code: str, file_ids: Optional[List[str]] = None, run_id: str = "adhoc",
+                   agent: str = "agent", timeout_s: int = 120) -> Dict[str, Any]:
+        """Run Python in this agent's sandbox. Referenced files are uploaded and checksum-verified first."""
+        if not self.sandbox or not self.sandbox.enabled:
+            return {"succeeded": False, "error_message": "no sandbox configured (UDRE_SANDBOX=off); use SQL tools"}
+        recs = [self.files.get(ctx.tenant_id, ctx.user_id, fid, kind="upload") for fid in (file_ids or [])]
+        try:
+            res = self.sandbox.run(run_id, agent, code, recs, ctx.tenant_id, ctx.user_id, timeout_s=min(timeout_s, 600))
+        except Exception as exc:
+            return {"succeeded": False, "error_message": f"{type(exc).__name__}: {exc}"}
+        return {"succeeded": res["exit_code"] == 0, **res}
 
     # ------------------------------------------------------------------ skills (progressive disclosure)
     def list_skills(self, ctx: AccessContext) -> List[Dict[str, Any]]:
@@ -316,11 +332,14 @@ class ToolBox:
 class ToolSession:
     """Per-agent binding of the toolbox: authorization context, budget and observation log."""
 
-    def __init__(self, toolbox: ToolBox, ctx: AccessContext, agent: str, max_calls: int = 40):
+    def __init__(self, toolbox: ToolBox, ctx: AccessContext, agent: str, max_calls: int = 40, run_id: str = "adhoc",
+                 on_event: Optional[Callable[[Dict[str, Any]], None]] = None):
         self.toolbox = toolbox
         self.ctx = ctx
         self.agent = agent
         self.max_calls = max_calls
+        self.run_id = run_id
+        self.on_event = on_event
         self.observations: List[ToolObservation] = []
         self.tokens_observed = 0
 
@@ -335,15 +354,37 @@ class ToolSession:
         t0 = time.perf_counter()
         if tool in ("compare_results", "export_results"):
             result = fn(**kwargs)
+        elif tool == "run_python":
+            result = fn(self.ctx, run_id=self.run_id, agent=self.agent, **kwargs)
         else:
             result = fn(self.ctx, **kwargs)
         latency = (time.perf_counter() - t0) * 1000
         preview = json.dumps(result, default=str)[:4000]
         self.tokens_observed += count_tokens(preview)
-        self.observations.append(ToolObservation(
+        obs = ToolObservation(
             step_index=len(self.observations), phase=phase, objective=objective, tool_name=tool,
             tool_args={k: (v if not isinstance(v, (list, dict)) else f"<{type(v).__name__}>") for k, v in kwargs.items()},
-            observation_summary=_summarize(tool, result), raw_output_preview=preview[:600], latency_ms=round(latency, 2)))
+            observation_summary=_summarize(tool, result), raw_output_preview=preview[:600], latency_ms=round(latency, 2))
+        self.observations.append(obs)
+        if self.on_event:
+            ev: Dict[str, Any] = {"agent": self.agent, "event": "tool", "step": obs.step_index, "tool": tool, "objective": objective,
+                                  "phase": phase, "summary": obs.observation_summary, "latency_ms": obs.latency_ms,
+                                  "ts": round(time.time(), 3)}
+            for k in ("query", "code", "term", "collection", "source_id", "column", "skill_id"):
+                if k in kwargs:
+                    ev[k] = str(kwargs[k])[:4000]
+            if isinstance(result, dict):
+                if "rows" in result:
+                    ev.update(columns=result.get("columns"), rows=(result.get("rows") or [])[:8], row_count=result.get("row_count"),
+                              error=result.get("error_message"), provenance=result.get("provenance"))
+                if tool == "run_python":
+                    ev.update(stdout=(result.get("stdout") or "")[-3000:], stderr=(result.get("stderr") or "")[-1500:],
+                              exit_code=result.get("exit_code"), artifacts=result.get("artifacts"), sandbox=result.get("provider"),
+                              error=result.get("error_message"))
+            try:
+                self.on_event(ev)
+            except Exception:
+                pass
         return result
 
 

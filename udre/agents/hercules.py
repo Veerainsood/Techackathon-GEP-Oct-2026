@@ -43,12 +43,15 @@ class HerculesAgent:
         self.max_turns = max_turns
 
     def run(self, question: str, session: ToolSession, compiled: CompiledSemanticContext, on_event=None) -> AgentReasoningCandidate:
+        if on_event and session.on_event is None:
+            session.on_event = on_event
         if self.llm is None:
             return self.run_deterministic(question, session, compiled)
         try:
             return asyncio.run(self.arun_llm(question, session, compiled, on_event))
         except LLMUnavailable as exc:
-            fresh = ToolSession(session.toolbox, session.ctx, session.agent, max_calls=session.max_calls)
+            fresh = ToolSession(session.toolbox, session.ctx, session.agent, max_calls=session.max_calls, run_id=session.run_id,
+                                on_event=session.on_event)
             cand = self.run_deterministic(question, fresh, compiled)
             cand.reasoning_mode, cand.failure = "deterministic_fallback", f"LLM unavailable: {exc}"
             return cand
@@ -57,7 +60,7 @@ class HerculesAgent:
                        on_event=None) -> AgentReasoningCandidate:
         import json
 
-        from udre.agents.llm_agent import TOOL_SPECS, LLMInvestigation, candidate_from_submission, serialize_result
+        from udre.agents.llm_agent import LLMInvestigation, available_tools, candidate_from_submission, serialize_result
         from udre.agents.prompts import HERCULES_SYSTEM, TRUST_RULES
 
         t0 = time.perf_counter()
@@ -67,12 +70,15 @@ class HerculesAgent:
         if info.get("collections_included", 0) < info.get("collections_total", 0):
             inclusion["omitted_collections_note"] = ("Only the most relevant collections fit the budget; omitted ones exist and "
                                                      "can be found with discover_collections / list_collection_contexts.")
-        user = (f"Question: {question}\n\nInclusion report: {json.dumps(inclusion)}\n\nCompressed overview of authorized data:\n"
+        manifest = session.ctx.manifest or {}
+        user = (f"Question: {question}\n\nData-version manifest (both agents use these versions):\n"
+                + serialize_result("manifest", {k: manifest.get(k) for k in ("sources", "workspace_files", "digest")})
+                + f"\n\nInclusion report: {json.dumps(inclusion)}\n\nCompressed overview of authorized data:\n"
                 + serialize_result("global_context", {"overview": json.loads(text)})
                 + "\n\nForm your own interpretation and plan first, then verify with tools and submit.")
         loop = LLMInvestigation(self.llm, self.name, HERCULES_SYSTEM.format(trust=TRUST_RULES), session,
                                 max_turns=self.max_turns, on_event=on_event)
-        sub, final = await loop.run(user, list(TOOL_SPECS))
+        sub, final = await loop.run(user, available_tools(session))
         sid = sub.source_id if sub else ""
         colls = session.toolbox.gateway.collections(session.ctx, sid) if sid else []
         dialect = session.toolbox.gateway.adapter(session.ctx, sid).dialect if sid else None
