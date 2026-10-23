@@ -39,9 +39,9 @@ def _load_dotenv() -> None:
 # extraction) use the OpenAI model; "light" is for cheap understanding/summarisation tasks.
 # Override with BACKEND_<ROLE>_LLM_MODEL, e.g. BACKEND_HERCULES_LLM_MODEL.
 FOUNDRY_DEFAULT_DEPLOYMENTS = {"explorer": "claude-opus-4-6", "hercules": "claude-opus-4-6", "adjudicator": "gpt-5.6-sol",
-                               "structured": "gpt-5.6-sol", "light": "claude-sonnet-5"}
+                               "intent": "gpt-5.6-sol", "structured": "gpt-5.6-sol", "light": "claude-sonnet-5"}
 # A role without its own BACKEND_<ROLE>_LLM_* value inherits from this role before the global BACKEND_LLM_* value.
-ROLE_FALLBACK = {"adjudicator": "structured"}
+ROLE_FALLBACK = {"adjudicator": "structured", "intent": "structured"}
 
 
 def foundry_credentials() -> tuple:

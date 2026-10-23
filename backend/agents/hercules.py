@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import time
-from typing import Any, Dict, List, Sequence
+from typing import Any, Dict, List, Optional, Sequence
 
 from backend.llm.base import LLMUnavailable
 
@@ -42,13 +42,14 @@ class HerculesAgent:
         self.llm = llm
         self.max_turns = max_turns
 
-    def run(self, question: str, session: ToolSession, compiled: CompiledSemanticContext, on_event=None) -> AgentReasoningCandidate:
+    def run(self, question: str, session: ToolSession, compiled: CompiledSemanticContext, on_event=None,
+            brief: Optional[Dict[str, Any]] = None) -> AgentReasoningCandidate:
         if on_event and session.on_event is None:
             session.on_event = on_event
         if self.llm is None:
             return self.run_deterministic(question, session, compiled)
         try:
-            return asyncio.run(self.arun_llm(question, session, compiled, on_event))
+            return asyncio.run(self.arun_llm(question, session, compiled, on_event, brief))
         except LLMUnavailable as exc:
             fresh = ToolSession(session.toolbox, session.ctx, session.agent, max_calls=session.max_calls, run_id=session.run_id,
                                 on_event=session.on_event)
@@ -57,7 +58,7 @@ class HerculesAgent:
             return cand
 
     async def arun_llm(self, question: str, session: ToolSession, compiled: CompiledSemanticContext,
-                       on_event=None) -> AgentReasoningCandidate:
+                       on_event=None, brief: Optional[Dict[str, Any]] = None) -> AgentReasoningCandidate:
         import json
 
         from backend.agents.llm_agent import LLMInvestigation, available_tools, candidate_from_submission, serialize_result
@@ -75,6 +76,8 @@ class HerculesAgent:
                 + serialize_result("manifest", {k: manifest.get(k) for k in ("sources", "workspace_files", "digest")})
                 + f"\n\nInclusion report: {json.dumps(inclusion)}\n\nCompressed overview of authorized data:\n"
                 + serialize_result("global_context", {"overview": json.loads(text)})
+                + (("\n\nIntent agent's brief (a starting hint, not evidence; verify everything):\n"
+                    + serialize_result("intent_brief", brief)) if brief else "")
                 + "\n\nForm your own interpretation and plan first, then verify with tools and submit.")
         loop = LLMInvestigation(self.llm, self.name, HERCULES_SYSTEM.format(trust=TRUST_RULES), session,
                                 max_turns=self.max_turns, on_event=on_event)

@@ -53,6 +53,7 @@ def result_payload(state: Dict[str, Any], question: str, include_candidates: boo
            "manifest": state.get("manifest"), "consistency": state.get("consistency"), "answer_id": state.get("answer_id"),
            "artifacts": state.get("artifacts", []), "exports": state.get("exports", []), "trace": state["trace"],
            "total_ms": state["total_ms"], "retried_from": state.get("retried_from"),
+           "intent": {k: (state.get("intent") or {}).get(k) for k in ("route", "reason", "mode", "options", "brief", "queried")},
            "candidates_summary": {c["agent_name"]: {"mode": c["reasoning_mode"], "value": c["structured_value"], "sql": c["query_or_plan"],
                                                     "interpretation": c["interpreted_question"], "tool_calls": c["tool_calls_count"],
                                                     "llm_usage": c.get("llm_usage"), "failure": c.get("failure"),

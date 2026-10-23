@@ -27,6 +27,7 @@ class VerificationStatus(str, Enum):
     VERIFIED_FACT = "verified_fact"
     CONTRADICTED = "contradicted"
     STALE_SCHEMA = "stale_schema"
+    NOT_APPLICABLE = "not_applicable"  # direct reply that makes no claim computed from the data
 
 
 class NodeType(str, Enum):

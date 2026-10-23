@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "can": [
+    {"id": "data_questions", "description": "Answer questions about the connected data (finance warehouse: invoices, receivables, contracts, deals, revenue, budgets, customers; HubSpot CRM: contacts and companies). Two independent agents execute SQL against the live data and a verifier checks the result before it is shown."},
+    {"id": "uploaded_files", "description": "Analyse files the user uploads (CSV, TSV, Excel, JSON, JSONL, Parquet) in an isolated workspace; uploads never change the shared data."},
+    {"id": "explain_answers", "description": "Show how an answer was produced: the SQL, the tables used, the evidence and the verification checks."},
+    {"id": "freshness", "description": "Report which data sources are connected and when each was last synced."},
+    {"id": "change_monitoring", "description": "Receive sync events from connected systems (HubSpot), check what changed and flag saved answers that the change made out of date."},
+    {"id": "exports", "description": "Export verified results as Excel or CSV."}
+  ],
+  "cannot": [
+    "Change data, pay invoices, approve payments or sign contracts; approvals are recorded in the Approvals screen only.",
+    "Answer from general knowledge or the internet; answers come only from the connected data.",
+    "Read data sources that are not connected or that the user is not authorized to see."
+  ]
+}

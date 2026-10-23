@@ -30,6 +30,14 @@ interface Result {
   errors: Record<string, string>
   total_ms: number
   retried_from?: string | null
+  intent?: {
+    route?: 'answer' | 'clarify' | 'investigate'
+    reason?: string
+    mode?: string
+    options?: string[]
+    queried?: boolean
+    brief?: { interpreted_question?: string; sources?: string[]; collections?: string[]; notes?: string } | null
+  }
 }
 
 interface Props {
@@ -48,14 +56,16 @@ type Tab = 'answer' | 'actions' | 'sources'
 
 // Pipeline phases shown in the original step list, each bound to the backend graph nodes it covers.
 const PHASES: { nodes: string[]; all?: boolean }[] = [
-  { nodes: ['parse_request'] },
+  { nodes: ['parse_request', 'understand_intent'], all: true },
   { nodes: ['resolve_sources'] },
   { nodes: ['retrieve_knowledge'] },
   { nodes: ['explorer', 'hercules'], all: true },
   { nodes: ['verify'] },
   { nodes: ['adjudicate', 'llm_adjudicate', 'targeted_followup'] },
-  { nodes: ['finalize'] },
+  { nodes: ['respond', 'finalize'] },
 ]
+// A direct reply or clarifying question only runs the first and last phases.
+const DIRECT_PHASES = [0, 6]
 
 function fmt(v: unknown): string {
   if (typeof v === 'number') return Math.abs(v) >= 1000 ? v.toLocaleString(undefined, { maximumFractionDigits: 2 }) : String(+v.toFixed(4))
@@ -64,8 +74,8 @@ function fmt(v: unknown): string {
   return typeof v === 'object' ? JSON.stringify(v) : String(v)
 }
 const secs = (ms?: number) => (ms === undefined ? '' : ms < 1000 ? `${Math.round(ms)} ms` : `${(ms / 1000).toFixed(1)} s`)
-const modelName = (m: ModelConfig | null, k: 'explorer' | 'hercules' | 'adjudicator') =>
-  m ? (m[k].mode === 'llm' ? m[k].model ?? 'model' : 'deterministic offline') : k
+const modelName = (m: ModelConfig | null, k: 'explorer' | 'hercules' | 'adjudicator' | 'intent') =>
+  m && m[k] ? (m[k]!.mode === 'llm' ? m[k]!.model ?? 'model' : 'deterministic rules') : k
 
 export function LiveThread({ request, onFollowUp, onRerun, headerRight, related, known, models, sourceCount, onAttach }: Props) {
   const [events, setEvents] = useState<StreamEvent[]>([])
@@ -129,12 +139,24 @@ export function LiveThread({ request, onFollowUp, onRerun, headerRight, related,
     const isDone = done || (p.all ? finished === p.nodes.length : finished > 0 && !running)
     return { isDone, running, ms: p.nodes.reduce((t, n) => t + (nodes[n]?.ms ?? 0), 0), error: p.nodes.map((n) => nodes[n]?.error).find(Boolean) }
   })
-  const stepIdx = done ? PHASES.length : Math.max(0, phaseState.findIndex((p) => !p.isDone))
+  const intentEvent = events.find((e) => e.agent === 'Intent' && e.event === 'decision')
+  const route = (result?.intent?.route ?? intentEvent?.route) as string | undefined
+  const direct = !!route && route !== 'investigate'
+  const visible = direct ? DIRECT_PHASES : PHASES.map((_, i) => i)
+  const stepPos = done ? visible.length : Math.max(0, visible.findIndex((i) => !phaseState[i].isDone))
 
   const fresh = srcList.filter((s) => !s.stale).length
   const passed = result?.validation.filter((v) => v.passed).length ?? 0
+  const routeDetail =
+    route === 'answer'
+      ? `Answered directly by the intent agent${result?.intent?.queried ? ' · one lookup query, not dual-verified' : ' · no data query needed'}`
+      : route === 'clarify'
+        ? 'Needs a clarifying question before querying the data'
+        : route === 'investigate'
+          ? `Data question → Explorer and Hercules${result?.intent?.brief?.interpreted_question ? ` · ${result.intent.brief.interpreted_question}` : ''}`
+          : 'Understanding the question…'
   const steps = [
-    { title: 'Interpreting question', detail: phaseState[0].error ?? `Parsed in ${secs(phaseState[0].ms)} · dual-path investigation` },
+    { title: 'Interpreting question', detail: phaseState[0].error ?? routeDetail },
     {
       title: `Reading ${srcList.length || '…'} connected source${srcList.length === 1 ? '' : 's'}`,
       detail: srcList.length ? `${fresh} current${srcList.length - fresh ? ` · ${srcList.length - fresh} stale` : ''} · versions pinned for both agents` : 'Authorizing sources',
@@ -153,8 +175,11 @@ export function LiveThread({ request, onFollowUp, onRerun, headerRight, related,
       title: 'Adjudicating the evidence',
       detail: verdict ? `${modelName(models, 'adjudicator')}: ${String(verdict.status)}${verdict.selected ? ` → ${String(verdict.selected)}` : ''}` : 'Comparing executed results',
     },
-    { title: 'Checking consistency & saving', detail: result ? `${result.consistency?.status ?? 'consistent'} · ${result.artifacts.length} artifact${result.artifacts.length === 1 ? '' : 's'}` : 'Version check, lineage, exports' },
+    direct
+      ? { title: route === 'clarify' ? 'Asking you to choose' : 'Replying', detail: `${modelName(models, 'intent')} · no agents, queries or exports needed` }
+      : { title: 'Checking consistency & saving', detail: result ? `${result.consistency?.status ?? 'consistent'} · ${result.artifacts.length} artifact${result.artifacts.length === 1 ? '' : 's'}` : 'Version check, lineage, exports' },
   ]
+  const shown = visible.map((i) => ({ ...steps[i], phase: i }))
 
   const data: Row[] = Array.isArray(result?.data) ? (result!.data as Row[]) : []
   const cols = data.length ? Object.keys(data[0]) : []
@@ -163,6 +188,7 @@ export function LiveThread({ request, onFollowUp, onRerun, headerRight, related,
   const tokens = Object.values(cs).reduce((t, c) => t + (c.llm_usage?.input_tokens ?? 0) + (c.llm_usage?.output_tokens ?? 0), 0)
   const warnings = [...(result?.consistency?.warnings ?? []), ...(result?.assumptions ?? [])].filter((w, i, a) => a.indexOf(w) === i)
   const disagreement = result && result.agreement_status !== 'exact_match'
+  const clarifyOptions = (result?.intent?.options ?? []) as string[]
   const cite = srcList.findIndex((s) => known.find((k) => k.source_id === result?.source_id)?.name === s.name || s.name === result?.source_id) + 1
 
   return (
@@ -223,21 +249,21 @@ export function LiveThread({ request, onFollowUp, onRerun, headerRight, related,
                     {done ? <Check size={15} className="text-brand" /> : <Spinner />}
                     {done ? (
                       <span className="font-medium">
-                        Completed {steps.length} steps · 2 agents · {tools.length} tool calls · {secs(result?.total_ms)}
+                        Completed {shown.length} steps · {direct ? 'intent agent' : '2 agents'} · {tools.length} tool calls · {secs(result?.total_ms)}
                       </span>
                     ) : (
-                      <span className="shimmer-text font-medium">{steps[Math.min(stepIdx, steps.length - 1)].title}…</span>
+                      <span className="shimmer-text font-medium">{shown[Math.min(stepPos, shown.length - 1)].title}…</span>
                     )}
                   </span>
                   {stepsOpen ? <ChevronDown size={15} className="text-muted" /> : <ChevronRight size={15} className="text-muted" />}
                 </button>
                 {stepsOpen && (
                   <ol className="border-t border-line px-4 py-3">
-                    {steps.map((s, i) => {
-                      const state = i < stepIdx ? 'done' : i === stepIdx ? 'active' : 'todo'
+                    {shown.map((s, i) => {
+                      const state = i < stepPos ? 'done' : i === stepPos ? 'active' : 'todo'
                       return (
                         <li key={s.title} className={`relative flex gap-3 pb-3 last:pb-0 ${state === 'todo' ? 'opacity-35' : ''}`}>
-                          {i < steps.length - 1 && <span className="absolute left-[7px] top-5 h-[calc(100%-12px)] w-px bg-line" />}
+                          {i < shown.length - 1 && <span className="absolute left-[7px] top-5 h-[calc(100%-12px)] w-px bg-line" />}
                           <span className="relative z-10 mt-0.5 bg-white">
                             {state === 'done' ? (
                               <span className="flex h-[15px] w-[15px] items-center justify-center rounded-full bg-brand">
@@ -252,7 +278,7 @@ export function LiveThread({ request, onFollowUp, onRerun, headerRight, related,
                           <div className="text-[13px]">
                             <div className="font-medium">{s.title}</div>
                             {state !== 'todo' && <div className="text-[12px] text-muted fade-up">{s.detail}</div>}
-                            {state === 'done' && i === 1 && (
+                            {state === 'done' && s.phase === 1 && (
                               <div className="mt-1.5 flex flex-wrap gap-1.5 fade-up">
                                 {srcList.map((src) => (
                                   <span
@@ -275,7 +301,7 @@ export function LiveThread({ request, onFollowUp, onRerun, headerRight, related,
                 )}
               </div>
 
-              {stepIdx >= 2 && srcList.length > 0 && (
+              {phaseState[1].isDone && srcList.length > 0 && (
                 <div className="mt-6 fade-up">
                   <SectionLabel icon={<Layers size={15} />}>Sources</SectionLabel>
                   <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
@@ -324,9 +350,26 @@ export function LiveThread({ request, onFollowUp, onRerun, headerRight, related,
 
                   <div className="space-y-4 text-[15px] leading-[1.7] text-stone-800">
                     <p>
-                      {result.answer}
+                      {result.answer.split('\n').map((line, i) => (
+                        <span key={i}>
+                          {i > 0 && <br />}
+                          {line}
+                        </span>
+                      ))}
                       {cite > 0 && <Cite ids={[cite]} list={srcList} />}
                     </p>
+                    {direct ? (
+                      <p>
+                        {route === 'clarify' ? (
+                          <>Choose one of the options below, or rephrase, and the agents will query the data.</>
+                        ) : (
+                          <>
+                            Answered by the intent agent ({modelName(models, 'intent')}) from the capability list and the data catalog
+                            {result.intent?.queried ? <>; it ran one lookup query, so this is <b className="text-rose-700">not dual-verified</b></> : ''}.
+                          </>
+                        )}
+                      </p>
+                    ) : (
                     <p>
                       {disagreement ? (
                         <>
@@ -344,9 +387,11 @@ export function LiveThread({ request, onFollowUp, onRerun, headerRight, related,
                         <>It is <b className="text-rose-700">not verified</b> ({result.verification_status.replace(/_/g, ' ')}).</>
                       )}
                     </p>
+                    )}
                   </div>
 
                   {/* KPIs */}
+                  {!direct && (
                   <div className="mt-5 grid grid-cols-2 divide-x divide-line md:grid-cols-4 overflow-hidden rounded-2xl border border-line bg-white">
                     {[
                       { l: 'Answer', v: fmt(cs.Explorer?.value ?? cs.Hercules?.value ?? result.data), t: verified ? 'Verified' : 'Not verified', c: verified ? 'text-emerald-700' : 'text-amber-700' },
@@ -361,6 +406,7 @@ export function LiveThread({ request, onFollowUp, onRerun, headerRight, related,
                       </div>
                     ))}
                   </div>
+                  )}
 
                   {/* warnings */}
                   {(warnings.length > 0 || Object.keys(result.errors).length > 0) && (
@@ -414,6 +460,8 @@ export function LiveThread({ request, onFollowUp, onRerun, headerRight, related,
                   )}
 
                   {/* conflict */}
+                  {!direct && (
+                  <>
                   <h3 className="mb-2 mt-8 text-[17px] font-semibold tracking-tight">
                     {disagreement ? 'Resolving a conflict between agents' : 'Cross-checking the two agents'}
                   </h3>
@@ -452,6 +500,8 @@ export function LiveThread({ request, onFollowUp, onRerun, headerRight, related,
                       </div>
                     </div>
                   </div>
+                  </>
+                  )}
 
                   <div className="mt-6 flex items-center gap-1 text-muted">
                     {[
@@ -464,19 +514,20 @@ export function LiveThread({ request, onFollowUp, onRerun, headerRight, related,
                       </button>
                     ))}
                     <span className="ml-auto text-[11px]">
-                      {modelName(models, 'explorer')} · {modelName(models, 'hercules')} · run {(result.request_id ?? '').slice(0, 8)} ·{' '}
+                      {direct ? modelName(models, 'intent') : `${modelName(models, 'explorer')} · ${modelName(models, 'hercules')}`} · run{' '}
+                      {(result.request_id ?? '').slice(0, 8)} ·{' '}
                       {new Date().toTimeString().slice(0, 5)} IST
                     </span>
                   </div>
 
-                  {/* related */}
-                  {related.length > 0 && (
+                  {/* related, or the clarification options */}
+                  {(route === 'clarify' ? clarifyOptions.length > 0 : related.length > 0) && (
                     <div className="mt-8 border-t border-line pt-5">
-                      <SectionLabel icon={<Layers size={15} />}>Related</SectionLabel>
-                      {related.slice(0, 4).map((q) => (
+                      <SectionLabel icon={<Layers size={15} />}>{route === 'clarify' ? 'Choose one' : 'Related'}</SectionLabel>
+                      {(route === 'clarify' ? clarifyOptions : related.slice(0, 4)).map((q) => (
                         <button
                           key={q}
-                          onClick={() => onFollowUp(q)}
+                          onClick={() => onFollowUp(route === 'clarify' ? `${query} (${q})` : q)}
                           className="flex w-full items-center justify-between border-b border-line py-2.5 text-left text-[14px] text-stone-700 last:border-0 hover:text-brand"
                         >
                           {q}
@@ -529,7 +580,7 @@ export function LiveThread({ request, onFollowUp, onRerun, headerRight, related,
       {/* follow-up composer */}
       <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-paper via-paper to-transparent pb-5 pt-10">
         <div className="pointer-events-auto mx-auto max-w-[760px] px-6">
-          {done && result && !verified && (
+          {done && result && !verified && !direct && (
             <div className="mb-2 flex items-center justify-between rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-[13px] fade-up">
               <span className="flex items-center gap-2 text-amber-800">
                 <AlertTriangle size={14} /> This answer needs your review: {result.verification_status.replace(/_/g, ' ')}

@@ -38,14 +38,14 @@ class ExplorerAgent:
         self.llm = llm  # LLMProvider or None (offline deterministic mode)
         self.max_turns = max_turns
 
-    def run(self, question: str, session: ToolSession, on_event=None) -> AgentReasoningCandidate:
+    def run(self, question: str, session: ToolSession, on_event=None, brief: Optional[Dict[str, Any]] = None) -> AgentReasoningCandidate:
         """LLM tool-calling investigation when a provider is configured; otherwise the deterministic planner."""
         if on_event and session.on_event is None:
             session.on_event = on_event
         if self.llm is None:
             return self.run_deterministic(question, session)
         try:
-            return asyncio.run(self.arun_llm(question, session, on_event))
+            return asyncio.run(self.arun_llm(question, session, on_event, brief))
         except LLMUnavailable as exc:
             fresh = ToolSession(session.toolbox, session.ctx, session.agent, max_calls=session.max_calls, run_id=session.run_id,
                                 on_event=session.on_event)
@@ -53,7 +53,8 @@ class ExplorerAgent:
             cand.reasoning_mode, cand.failure = "deterministic_fallback", f"LLM unavailable: {exc}"
             return cand
 
-    async def arun_llm(self, question: str, session: ToolSession, on_event=None) -> AgentReasoningCandidate:
+    async def arun_llm(self, question: str, session: ToolSession, on_event=None,
+                       brief: Optional[Dict[str, Any]] = None) -> AgentReasoningCandidate:
         import json as _json
 
         from backend.agents.llm_agent import LLMInvestigation, available_tools, candidate_from_submission, serialize_result
@@ -72,6 +73,8 @@ class ExplorerAgent:
                 + "\n\nLightweight collection catalog (load details progressively):\n"
                 + serialize_result("collection_catalog", {"collections": "\n".join(lines)}) + "\n\nVerified knowledge:\n"
                 + serialize_result("lookup_knowledge", knowledge)
+                + (("\n\nIntent agent's brief (a starting hint, not evidence; verify everything):\n"
+                    + serialize_result("intent_brief", brief)) if brief else "")
                 + "\n\nInvestigate with tools, keep explicit state, and submit a grounded candidate.")
         system = EXPLORER_SYSTEM.format(skill=skill["instructions"], trust=TRUST_RULES)
         loop = LLMInvestigation(self.llm, self.name, system, session, max_turns=self.max_turns, on_event=on_event)

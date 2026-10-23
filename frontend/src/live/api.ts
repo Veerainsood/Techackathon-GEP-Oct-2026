@@ -33,6 +33,7 @@ export interface ModelConfig {
   explorer: ModelInfo
   hercules: ModelInfo
   adjudicator: ModelInfo
+  intent?: ModelInfo
   sandbox: string
 }
 export interface RuntimeSource {

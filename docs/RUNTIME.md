@@ -62,6 +62,20 @@ flowchart LR
   ADJ --> FIN[Consistency check · artifacts · answer record]
 ```
 
+## Intent agent (first step for every question)
+
+`understand_intent` runs before anything else (`backend/agents/intent.py`). It has the same read-only knowledge tools as Explorer and Hercules, read-only SQL, and a fixed capability list (`backend/agents/capabilities.json`). It submits one schema-checked decision:
+
+| Route | When | What happens |
+|---|---|---|
+| `answer` | Greetings, "what can you do?", which data or fields exist, freshness, how answers are verified | Answered directly in a few seconds. No agents, exports or saved answer. If it ran a lookup query, the answer is labelled *not dual-verified* |
+| `clarify` | A data question that needs a choice only the user can make (which year, which revenue definition) | One short question with 2–4 options from the catalog. The UI shows the options as follow-ups |
+| `investigate` | Any business figure (totals, counts, rankings, comparisons) | The usual Explorer + Hercules path. Both agents get the intent agent's brief as a starting hint, not evidence |
+
+When unsure, it chooses `investigate`. Without an LLM it uses deterministic rules that only answer obvious conversational and catalog questions. Single-agent runs (`mode=explorer|hercules`) skip it.
+
+Verified live: "what can you do?" was answered in 7 s and "What was our revenue last year?" got a clarifying question in 6 s. "Is Contoso Logistics a customer, which region?" was answered in 12 s with one lookup, labelled not dual-verified. "How many OVERDUE invoices?" went to both agents and came back 13, verified, in 46 s.
+
 ## Event contract (proposal)
 
 The contract is a **proposal to agree with the ingestion engineer**. The backend does not assume the producer already emits it. JSON Schema: [`docs/events/sync-event.v1.schema.json`](events/sync-event.v1.schema.json). Model: `backend/events/contracts.py`.
@@ -154,6 +168,7 @@ Routing policy: the two investigating agents do the important work, so both use 
 |---|---|---|---|
 | Explorer | `claude-opus-4-6` | `/anthropic/v1/messages` | `BACKEND_EXPLORER_LLM_MODEL` |
 | Hercules | `claude-opus-4-6` | `/anthropic/v1/messages` | `BACKEND_HERCULES_LLM_MODEL` |
+| Intent agent (first step) | `gpt-5.6-sol` | `/openai/v1/chat/completions` | `BACKEND_INTENT_LLM_MODEL` (falls back to the structured role) |
 | Structured output (adjudicator verdict) | `gpt-5.6-sol` | `/openai/v1/chat/completions` | `BACKEND_STRUCTURED_LLM_MODEL` (or `BACKEND_ADJUDICATOR_LLM_MODEL`) |
 | Light tasks | `claude-sonnet-5` | `/anthropic/v1/messages` | `BACKEND_LIGHT_LLM_MODEL` |
 

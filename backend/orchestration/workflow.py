@@ -1,7 +1,8 @@
 """Dual-path LangGraph workflow.
 
-parse_request -> resolve_sources -> retrieve_knowledge -> {explorer || hercules} -> verify
-  -> adjudicate -> (targeted_followup)? -> finalize
+parse_request -> understand_intent -> respond -> finalize                      (direct reply or clarifying question)
+                                   -> resolve_sources -> retrieve_knowledge -> {explorer || hercules} -> verify
+                                      -> adjudicate -> (targeted_followup)? -> finalize          (data questions)
 
 Explorer and Hercules run in the same superstep and write disjoint state keys
 (``explorer_*`` / ``hercules_*``): LangGraph rejects concurrent writes to one key without a reducer,
@@ -38,6 +39,7 @@ class BackendState(TypedDict, total=False):
     use_memory: bool
     export_formats: List[str]
     parsed: Dict[str, Any]
+    intent: Dict[str, Any]
     sources: List[str]
     versions: Dict[str, str]
     shared_knowledge: Dict[str, Any]
@@ -86,9 +88,12 @@ class DualPathWorkflow:
             except Exception as exc:
                 emit({"event": "node", "node": name, "status": "failed", "error": f"{type(exc).__name__}: {exc}"[:400]})
                 raise
-            detail = (out.get("trace") or [{}])[-1] if isinstance(out, dict) else {}
-            emit({"event": "node", "node": name, "status": "finished", "ts": round(time.time(), 3),
-                  **{k: v for k, v in detail.items() if k != "node"}})
+            detail = dict((out.get("trace") or [{}])[-1]) if isinstance(out, dict) else {}
+            for reserved in ("node", "event", "ts"):
+                detail.pop(reserved, None)
+            if "status" in detail:  # a node's own status (e.g. agreement status) must not hide that the node finished
+                detail["outcome"] = detail.pop("status")
+            emit({**detail, "event": "node", "node": name, "status": "finished", "ts": round(time.time(), 3)})
             return out
         return node
 
@@ -112,6 +117,11 @@ class DualPathWorkflow:
     def _toolbox(self, state: BackendState) -> ToolBox:
         return self.e.toolbox(use_memory=bool(state.get("use_memory")))
 
+    @staticmethod
+    def _brief(state: BackendState) -> Optional[Dict[str, Any]]:
+        it = state.get("intent") or {}
+        return it.get("brief") if it.get("mode") == "llm" else None  # the rule-based fallback has nothing to add
+
     # ------------------------------------------------------------------ nodes
     def parse_request(self, state: BackendState) -> Dict[str, Any]:
         t0 = time.perf_counter()
@@ -119,6 +129,46 @@ class DualPathWorkflow:
         parsed = {"aggregation": f.aggregation, "years": f.years, "periods": f.periods, "relative_time": f.relative_time,
                   "group": f.group_phrase, "entity": f.entity_phrase, "exclusions": f.exclusions, "null_terms": f.null_terms}
         return {"parsed": parsed, "trace": _t("parse_request", t0, parsed=parsed)}
+
+    def understand_intent(self, state: BackendState) -> Dict[str, Any]:
+        """Answer directly, ask a clarifying question, or brief the investigating agents."""
+        t0 = time.perf_counter()
+        ctx = self._ctx(state)
+        emit = self._sink(state["request_id"])
+        if self.e.intent is None or state.get("mode", "dual") != "dual":
+            intent = {"route": "investigate", "reason": "intent step not used for single-agent runs", "mode": "skipped"}
+            return {"intent": intent, "trace": _t("understand_intent", t0, route="investigate", mode="skipped")}
+        session = ToolSession(self._toolbox(state), ctx, "Intent", max_calls=10, run_id=state["request_id"], on_event=emit)
+        versions = {v["source_id"]: v for v in (self.e.runtime_store.source_versions(ctx.tenant_id) if self.e.runtime_store else [])}
+        freshness = [{"source_id": s.source_id, "name": s.name, "sync_status": versions.get(s.source_id, {}).get("sync_status", "no events yet"),
+                      "last_sync_at": str(versions.get(s.source_id, {}).get("last_sync_at") or "") or None}
+                     for s in self.e.gateway.sources(ctx)]
+        decision, meta = self.e.intent.decide(state["question"], session, freshness, on_event=emit)
+        intent = {**decision.model_dump(mode="json"), **meta, "tool_calls": len(session.observations)}
+        emit({"agent": "Intent", "event": "decision", "route": decision.route, "reason": decision.reason, "mode": meta.get("mode")})
+        return {"intent": intent, "trace": _t("understand_intent", t0, route=decision.route, mode=meta.get("mode"),
+                                              tool_calls=len(session.observations))}
+
+    def after_intent(self, state: BackendState) -> str:
+        return "resolve_sources" if state.get("intent", {}).get("route", "investigate") == "investigate" else "respond"
+
+    def respond(self, state: BackendState) -> Dict[str, Any]:
+        """Turn a direct reply or clarifying question into the same decision shape the investigation produces."""
+        t0 = time.perf_counter()
+        it = state["intent"]
+        if it["route"] == "clarify":
+            text = it["clarifying_question"] + ("".join(f"\n- {o}" for o in it.get("options") or []))
+            path, status, notes = "Clarification_Requested", VerificationStatus.NOT_APPLICABLE, []
+        else:
+            text = it["answer"]
+            queried = bool(it.get("queried"))
+            path = "Direct_Response"
+            status = VerificationStatus.INFERRED_CANDIDATE if queried else VerificationStatus.NOT_APPLICABLE
+            notes = ["answered with a single query by the intent agent; not dual-verified"] if queried else []
+        decision = AdjudicationDecision(question=state["question"], selected_path=path, agreement_status="not_applicable",
+                                        final_answer=text, winning_query="", winning_source_id="", verification_status=status,
+                                        unresolved_assumptions=notes)
+        return {"decision": decision.model_dump(mode="json"), "trace": _t("respond", t0, path=path)}
 
     def resolve_sources(self, state: BackendState) -> Dict[str, Any]:
         t0 = time.perf_counter()
@@ -170,7 +220,7 @@ class DualPathWorkflow:
                               run_id=state["request_id"], on_event=emit)
         try:
             emit({"agent": "Explorer", "event": "started", "mode": "llm" if self.e.explorer.llm else "deterministic_offline"})
-            cand = self.e.explorer.run(state["question"], session, on_event=emit)
+            cand = self.e.explorer.run(state["question"], session, on_event=emit, brief=self._brief(state))
             emit({"agent": "Explorer", "event": "candidate", "value": str(cand.structured_value)[:200], "mode": cand.reasoning_mode})
             return {"explorer_candidate": cand.model_dump(mode="json"),
                     "trace": _t("explorer", t0, tool_calls=cand.tool_calls_count, value=str(cand.structured_value)[:80],
@@ -188,7 +238,7 @@ class DualPathWorkflow:
         try:
             compiled = self.e.compiled_context(ctx, use_memory=bool(state.get("use_memory")))
             emit({"agent": "Hercules", "event": "started", "mode": "llm" if self.e.hercules.llm else "deterministic_offline"})
-            cand = self.e.hercules.run(state["question"], session, compiled, on_event=emit)
+            cand = self.e.hercules.run(state["question"], session, compiled, on_event=emit, brief=self._brief(state))
             emit({"agent": "Hercules", "event": "candidate", "value": str(cand.structured_value)[:200], "mode": cand.reasoning_mode})
             return {"hercules_candidate": cand.model_dump(mode="json"),
                     "trace": _t("hercules", t0, tool_calls=cand.tool_calls_count, value=str(cand.structured_value)[:80],
@@ -351,7 +401,8 @@ class DualPathWorkflow:
                                                status="failed")
                         persisted["failed_query"] += 1
         exports = []
-        for fmt in state.get("export_formats") or []:
+        direct = (state.get("intent") or {}).get("route", "investigate") != "investigate"
+        for fmt in [] if direct else state.get("export_formats") or []:
             meta = {"title": state["question"], "question": state["question"], "answer": d["final_answer"],
                     "verification_status": d["verification_status"], "agreement_status": d["agreement_status"],
                     "query": d["winning_query"], "evidence": [e["observed_summary"] for e in d.get("supporting_evidence", [])[:10]],
@@ -404,6 +455,8 @@ class DualPathWorkflow:
         g = StateGraph(BackendState)
         w = self._wrap
         g.add_node("parse_request", w("parse_request", self.parse_request))
+        g.add_node("understand_intent", w("understand_intent", self.understand_intent), retry_policy=TRANSIENT)
+        g.add_node("respond", w("respond", self.respond))
         g.add_node("resolve_sources", w("resolve_sources", self.resolve_sources), retry_policy=TRANSIENT)
         g.add_node("retrieve_knowledge", w("retrieve_knowledge", self.retrieve_knowledge), retry_policy=TRANSIENT)
         g.add_node("explorer", w("explorer", self.explorer), retry_policy=TRANSIENT)
@@ -414,7 +467,9 @@ class DualPathWorkflow:
         g.add_node("targeted_followup", w("targeted_followup", self.targeted_followup), retry_policy=TRANSIENT)
         g.add_node("finalize", w("finalize", self.finalize), retry_policy=TRANSIENT)
         g.add_edge(START, "parse_request")
-        g.add_edge("parse_request", "resolve_sources")
+        g.add_edge("parse_request", "understand_intent")
+        g.add_conditional_edges("understand_intent", self.after_intent, ["resolve_sources", "respond"])
+        g.add_edge("respond", "finalize")
         g.add_edge("resolve_sources", "retrieve_knowledge")
         g.add_conditional_edges("retrieve_knowledge", self.route_agents, ["explorer", "hercules"])
         g.add_edge("explorer", "verify")

@@ -55,6 +55,7 @@ class Engine:
     sandbox: Any = None
     workspaces: Any = None
     llm_adjudicator: Any = None
+    intent: Any = None
     _ctx_cache: Dict[Tuple[str, str, bool], CompiledSemanticContext] = field(default_factory=dict)
     _lock: threading.Lock = field(default_factory=threading.Lock)
 
@@ -84,6 +85,7 @@ class Engine:
             return {"mode": "llm", "provider": p.name, "model": p.model} if p else {"mode": "deterministic_offline"}
         return {"explorer": describe(self.explorer.llm), "hercules": describe(self.hercules.llm),
                 "adjudicator": describe(self.llm_adjudicator.provider if self.llm_adjudicator else None),
+                "intent": describe(self.intent.llm if self.intent else None),
                 "sandbox": self.sandbox.provider if self.sandbox else "off"}
 
     def invalidate_caches(self, tenant: str, source_id: Optional[str] = None) -> int:
@@ -153,28 +155,30 @@ class Engine:
         return {"source": desc.model_dump(), **self.prepare_source(ctx, source_id, force=True)}
 
 
-def _providers(settings: Settings, override: Optional[Tuple[Any, ...]]) -> Tuple[Any, Any, Any]:
+def _providers(settings: Settings, override: Optional[Tuple[Any, ...]]) -> Tuple[Any, Any, Any, Any]:
+    """(explorer, hercules, adjudicator, intent) providers; None means deterministic."""
     if override is not None:
-        return (tuple(override) + (None,))[:3]
+        return (tuple(override) + (None,) * 4)[:4]
     if settings.reasoning_mode == "offline":
-        return None, None, None
+        return None, None, None, None
     from backend.llm.config import LLMSettings, build_provider
 
     exp, her = build_provider(LLMSettings.from_env("explorer")), build_provider(LLMSettings.from_env("hercules"))
-    adj = build_provider(LLMSettings.from_env("adjudicator"))
+    adj, intent = build_provider(LLMSettings.from_env("adjudicator")), build_provider(LLMSettings.from_env("intent"))
     if settings.reasoning_mode == "llm" and not (exp and her):
         raise RuntimeError("BACKEND_REASONING_MODE=llm but no LLM is configured; set BACKEND_FOUNDRY_ENDPOINT and BACKEND_FOUNDRY_API_KEY "
                            "(or BACKEND_LLM_BASE_URL / BACKEND_LLM_API_KEY / BACKEND_LLM_MODEL, or per-agent BACKEND_<AGENT>_LLM_*)")
-    return exp, her, adj
+    return exp, her, adj, intent
 
 
 def build_engine(settings: Optional[Settings] = None, register_defaults: bool = True,
                  llm_providers: Optional[Tuple[Any, Any]] = None) -> Engine:
-    """``llm_providers=(explorer, hercules)`` overrides environment configuration (used by tests)."""
+    """``llm_providers=(explorer, hercules[, adjudicator[, intent]])`` overrides environment configuration (used by tests)."""
+    from backend.agents.intent import IntentAgent
     from backend.orchestration.workflow import DualPathWorkflow
 
     settings = settings or Settings()
-    explorer_llm, hercules_llm, adjudicator_llm = _providers(settings, llm_providers)
+    explorer_llm, hercules_llm, adjudicator_llm, intent_llm = _providers(settings, llm_providers)
     gateway = SourceGateway()
     if register_defaults:
         # "public" holds knowledge-ingestion's bookkeeping tables (raw HubSpot payloads), which agents must not read.
@@ -223,5 +227,6 @@ def build_engine(settings: Optional[Settings] = None, register_defaults: bool = 
     engine.sandbox = SandboxManager(engine.files)
     engine.workspaces = WorkspaceManager(engine)
     engine.llm_adjudicator = LLMAdjudicator(adjudicator_llm, gateway) if adjudicator_llm else None
+    engine.intent = IntentAgent(intent_llm)
     engine.workflow = DualPathWorkflow(engine)
     return engine
