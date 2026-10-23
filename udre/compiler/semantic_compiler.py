@@ -177,7 +177,8 @@ class SemanticContextCompiler:
         metrics = [{"s": m["source_id"], "m": m["properties"]["metric"], "l": m["label"],
                     "on": f"{m['properties']['collection']}.{m['properties']['column']}",
                     "agg": m["properties"]["aggregation"], "v": m["verification_status"] == "verified_fact",
-                    "unit": m["properties"].get("unit_hint")} for part in parts for m in part["metrics"]]
+                    "unit": m["properties"].get("unit_hint"), "syn": m["properties"].get("synonyms", [])}
+                   for part in parts for m in part["metrics"]]
         patterns = [{"q": _short(p.get("question"), 140), "sql": p.get("sql"), "s": p.get("source_id")}
                     for p in verified_patterns][:20]
 
