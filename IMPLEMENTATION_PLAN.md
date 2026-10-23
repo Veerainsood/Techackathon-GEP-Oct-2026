@@ -6,23 +6,9 @@
 - **Environment**: Python 3.12.10 with `langgraph`, `langchain-core`, `langchain-openai`, `fastapi`, `pydantic`, `sqlalchemy`, `sqlglot`, `duckdb`, `pyarrow`, `pandas`, `openpyxl`, `rapidfuzz`, `jellyfish`, `scikit-learn`, `tiktoken`, `psycopg2-binary`, and `pytest`.
 - **Database Runtime**: No PostgreSQL daemon on port 5432 and Docker is not running, so the project uses `pgserver` (an embedded, real PostgreSQL 16.2 with pgvector, data in `.pgdata/`). Set `UDRE_PG_URI` to use an external PostgreSQL instead.
 
-## Progress Status (parked 23-Oct-2026 10:55)
+## Progress Status (23-Oct-2026)
 
-Done and verified:
-- `udre/contracts/models.py`: typed Pydantic contracts.
-- `udre/synthetic/schema_spec.py`: all 39 DBA tables mapped to 8 fictional schemas, DDL with PKs/FKs/indexes/comments, mapping-doc generator.
-- `udre/synthetic/generator.py`: seeded event-driven generator. A run produced 17,782 rows across all 39 tables in 1.2s.
-- `udre/synthetic/loader.py`: loads into embedded PostgreSQL (1.3s) and exports CSV/Parquet/Excel/JSON uploads.
-
-Written but not yet run:
-- `udre/synthetic/ground_truth.py`: 9 SQL financial invariants and a 24-question benchmark (10 dev, 14 held-out).
-
-Next steps, in order:
-1. Run invariants and benchmark SQL against PostgreSQL, then fix any generator bugs.
-2. Source gateway (Postgres, DuckDB files, Mongo/REST interfaces), then the 12 collection tools.
-3. Profiler, semantic compiler, knowledge graph (pgvector), and ontology builder.
-4. Explorer and Hercules agents, validators, adjudicator, and memory.
-5. LangGraph workflow, exporters, FastAPI, demo script, benchmark runner, tests, and docs.
+All five planned phases are built and tested. See `README.md` for the current split between implemented, partially implemented and planned features, and for benchmark results. The section below is the original plan; module names changed slightly during implementation (for example, the embedded database is managed by `udre/pg_embedded.py` rather than through `pgserver.get_server`, which hung during crash recovery on Windows).
 
 ---
 

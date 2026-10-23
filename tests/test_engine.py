@@ -226,16 +226,17 @@ def test_memory_learns_and_respects_tenant_boundaries(engine):
     a, b = AccessContext(tenant_id="t_mem_a", user_id="u1"), AccessContext(tenant_id="t_mem_b", user_id="u1")
     for ctx in (a, b):
         engine.memory.clear(ctx)
-    versions = {"finance_pg": "v1"}
-    engine.memory.remember(a, "query_template", "finance_pg", "v1", "k1", {"sql": "SELECT 1"}, question="open balance by status")
-    engine.memory.remember(a, "value_mapping", "finance_pg", "v1", "k2", {"term": "overdue", "collection": "c", "column": "s",
-                                                                          "value": "OVERDUE"}, shared=False)
+    src = "memory_test_source"
+    versions = {src: "v1"}
+    engine.memory.remember(a, "query_template", src, "v1", "k1", {"sql": "SELECT 1"}, question="open balance by status")
+    engine.memory.remember(a, "value_mapping", src, "v1", "k2", {"term": "overdue", "collection": "c", "column": "s",
+                                                                 "value": "OVERDUE"}, shared=False)
     assert engine.memory.similar(a, "open balance by status", "query_template", versions)
     assert not engine.memory.similar(b, "open balance by status", "query_template", versions)
     assert "overdue" in engine.memory.value_mappings(a, versions)
     assert not engine.memory.value_mappings(AccessContext(tenant_id="t_mem_a", user_id="u2"), versions)
-    assert engine.memory.invalidate_source("finance_pg", "v2") >= 2
-    assert not engine.memory.similar(a, "open balance by status", "query_template", {"finance_pg": "v2"})
+    assert engine.memory.invalidate_source(src, "v2") >= 2
+    assert not engine.memory.similar(a, "open balance by status", "query_template", {src: "v2"})
     for ctx in (a, b):
         engine.memory.clear(ctx)
 

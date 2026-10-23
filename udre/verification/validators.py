@@ -219,6 +219,7 @@ class Verifier:
             if not ev["ok"]:
                 continue
             n, impact = ev["rows"][0]["n"], ev["rows"][0]["impact"]
+            impact = round(float(impact), 2) if impact is not None else None
             if n and impact:
                 out.append(_f("nullifying_status", True, "warning",
                               f"result includes {n} rows with {c.column} in {bad} (impact {impact}); confirm whether they belong",

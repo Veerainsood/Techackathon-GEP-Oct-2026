@@ -122,7 +122,13 @@ class Adjudicator:
         names = [n for n in ("Explorer", "Hercules") if n in cands]
         scores = {n: evidence_score(findings.get(n, []), cands[n]) for n in names}
         lineage = [f"{n}: {cands[n].query_or_plan}" for n in names]
-        all_findings = [f for n in names for f in findings.get(n, [])]
+        seen_f: set = set()
+        all_findings = []
+        for n in names:
+            for f in findings.get(n, []):
+                if (f.validator_name, f.message) not in seen_f:
+                    seen_f.add((f.validator_name, f.message))
+                    all_findings.append(f)
         evidence: List[EvidenceReference] = [e for n in names for e in cands[n].evidence_references]
         total_tokens = sum(c.tokens_used for c in cands.values())
         latency = max((c.latency_ms for c in cands.values()), default=0.0)
