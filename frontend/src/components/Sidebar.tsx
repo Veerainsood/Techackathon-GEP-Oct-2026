@@ -1,0 +1,250 @@
+import {
+  Bot,
+  Compass,
+  GitBranch,
+  Inbox,
+  Database,
+  History,
+  PanelLeftClose,
+  PanelLeftOpen,
+  PauseCircle,
+  PlayCircle,
+  Plus,
+  ScrollText,
+  Settings,
+} from 'lucide-react'
+import { useEffect, useState } from 'react'
+import { recentThreads } from '../data'
+
+export type View = 'home' | 'thread' | 'autopilot' | 'approvals' | 'activity' | 'settings' | 'sources'
+
+interface Props {
+  view: View
+  onNavigate: (v: View) => void
+  onNew: () => void
+  pendingCount: number
+  paused: boolean
+  onTogglePause: () => void
+  hasThread: boolean
+  live?: boolean
+  backend?: 'up' | 'down' | 'checking'
+  recent?: string[]
+  onRecent?: (q: string) => void
+}
+
+const STORAGE_KEY = 'finsight.sidebar.collapsed'
+
+export function Sidebar({ view, onNavigate, onNew, pendingCount, paused, onTogglePause, hasThread, live, backend, recent, onRecent }: Props) {
+  const [collapsed, setCollapsed] = useState(() => localStorage.getItem(STORAGE_KEY) === '1')
+
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEY, collapsed ? '1' : '0')
+  }, [collapsed])
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'b') {
+        e.preventDefault()
+        setCollapsed((c) => !c)
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
+
+  const items: { id: View; label: string; icon: typeof Compass; badge?: number; live?: boolean }[] = live
+    ? [
+        { id: 'home', label: 'Ask', icon: Compass },
+        { id: 'autopilot', label: 'Changes', icon: GitBranch, live: backend === 'up' },
+        { id: 'sources', label: 'Sources', icon: Database },
+        { id: 'activity', label: 'Answers', icon: ScrollText },
+      ]
+    : [
+        { id: 'home', label: 'Home', icon: Compass },
+        { id: 'autopilot', label: 'Autopilot', icon: Bot, live: true },
+        { id: 'approvals', label: 'Approvals', icon: Inbox, badge: pendingCount },
+        { id: 'activity', label: 'Activity log', icon: ScrollText },
+        { id: 'sources', label: 'Sources', icon: Database },
+        { id: 'settings', label: 'Settings', icon: Settings },
+      ]
+  const library = live ? recent ?? [] : recentThreads
+
+  const Logo = (
+    <div className="flex h-7 w-9 shrink-0 items-center justify-center rounded-md bg-brand text-[11px] font-bold tracking-wide text-white">
+      GEP
+    </div>
+  )
+
+  return (
+    <aside
+      className={`flex shrink-0 flex-col border-r border-line bg-[#f5f4f0] py-4 transition-[width] duration-200 ${
+        collapsed ? 'w-[60px] items-center px-2' : 'w-60 px-3'
+      }`}
+    >
+      {collapsed ? (
+        <button
+          onClick={() => setCollapsed(false)}
+          title="Expand sidebar (⌘B)"
+          className="group relative mb-5 flex h-9 w-9 items-center justify-center rounded-lg hover:bg-white"
+        >
+          <span className="group-hover:hidden">{Logo}</span>
+          <PanelLeftOpen size={17} className="hidden text-stone-600 group-hover:block" />
+        </button>
+      ) : (
+        <div className="mb-5 flex items-center justify-between pl-2">
+          <div className="flex items-center gap-2">
+            {Logo}
+            <span className="text-[19px] font-semibold leading-none tracking-tight">FinSight</span>
+          </div>
+          <button
+            onClick={() => setCollapsed(true)}
+            title="Collapse sidebar (⌘B)"
+            className="rounded-lg p-1.5 text-stone-500 hover:bg-white hover:text-ink"
+          >
+            <PanelLeftClose size={17} />
+          </button>
+        </div>
+      )}
+
+      {collapsed ? (
+        <button
+          onClick={onNew}
+          title="New goal (⌘K)"
+          className="mb-4 flex h-9 w-9 items-center justify-center rounded-full border border-line bg-white text-ink shadow-sm hover:border-stone-300"
+        >
+          <Plus size={16} />
+        </button>
+      ) : (
+        <button
+          onClick={onNew}
+          className="mb-4 flex items-center justify-between rounded-full border border-line bg-white px-4 py-2 text-sm text-ink shadow-sm transition hover:border-stone-300"
+        >
+          <span className="flex items-center gap-2">
+            <Plus size={16} /> New goal
+          </span>
+          <kbd className="rounded border border-line px-1.5 text-[10px] text-muted">⌘K</kbd>
+        </button>
+      )}
+
+      <nav className={`flex flex-col gap-0.5 ${collapsed ? 'items-center' : ''}`}>
+        {items.map(({ id, label, icon: Icon, badge, live }) => {
+          const active = view === id || (id === 'home' && view === 'thread')
+          const tone = active ? 'bg-white font-medium text-ink shadow-sm' : 'text-stone-600 hover:bg-white/60'
+          if (collapsed) {
+            return (
+              <button
+                key={id}
+                onClick={() => onNavigate(id)}
+                title={label}
+                className={`relative flex h-9 w-9 items-center justify-center rounded-lg transition ${tone}`}
+              >
+                <Icon size={17} />
+                {live && !paused && <span className="absolute right-1.5 top-1.5 h-1.5 w-1.5 rounded-full bg-emerald-500" />}
+                {!!badge && (
+                  <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-amber-500 px-1 text-[9px] font-semibold text-white">
+                    {badge}
+                  </span>
+                )}
+              </button>
+            )
+          }
+          return (
+            <button
+              key={id}
+              onClick={() => onNavigate(id)}
+              className={`flex items-center justify-between rounded-lg px-3 py-2 text-sm transition ${tone}`}
+            >
+              <span className="flex items-center gap-2.5">
+                <Icon size={16} />
+                {label}
+              </span>
+              {!!badge && (
+                <span className="rounded-full bg-amber-500 px-1.5 text-[10px] font-semibold text-white">{badge}</span>
+              )}
+              {live && !paused && <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-500" />}
+            </button>
+          )
+        })}
+      </nav>
+
+      {!collapsed && (
+        <>
+          <div className="mt-6 px-3 text-[11px] font-medium uppercase tracking-wider text-stone-400">Library</div>
+          <div className="mt-1 flex flex-col gap-0.5">
+            {library.map((t, i) => (
+              <button
+                key={`${t}-${i}`}
+                onClick={() => (live ? onRecent?.(t) : i === 0 && hasThread && onNavigate('thread'))}
+                className="flex items-center gap-2 truncate rounded-lg px-3 py-1.5 text-left text-[13px] text-stone-600 hover:bg-white/60"
+              >
+                <History size={13} className="shrink-0 text-stone-400" />
+                <span className="truncate">{t}</span>
+              </button>
+            ))}
+          </div>
+        </>
+      )}
+
+      {live ? (
+        <div className={`mt-auto ${collapsed ? 'flex justify-center' : 'rounded-xl border border-line bg-white p-3'}`}>
+          <div className="flex items-center gap-2 text-xs">
+            <span className={`h-2 w-2 rounded-full ${backend === 'up' ? 'bg-emerald-500' : backend === 'down' ? 'bg-rose-500' : 'bg-stone-300'}`} />
+            {!collapsed && <span className="font-medium">{backend === 'up' ? 'Backend connected' : backend === 'down' ? 'Backend unreachable' : 'Connecting…'}</span>}
+          </div>
+          {!collapsed && <p className="mt-1 text-[11px] text-muted">Live mode · every step shown comes from a backend event</p>}
+        </div>
+      ) : collapsed ? (
+        <div className="mt-auto flex flex-col items-center gap-3">
+          <button
+            onClick={onTogglePause}
+            title={paused ? 'Resume agent' : 'Emergency stop'}
+            className={`relative flex h-9 w-9 items-center justify-center rounded-lg transition ${
+              paused ? 'bg-brand text-white hover:bg-brand/90' : 'bg-rose-50 text-rose-700 hover:bg-rose-100'
+            }`}
+          >
+            {paused ? <PlayCircle size={17} /> : <PauseCircle size={17} />}
+            <span
+              className={`absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full border-2 border-[#f5f4f0] ${
+                paused ? 'bg-rose-500' : 'bg-emerald-500'
+              }`}
+            />
+          </button>
+          <div
+            title="Meera Rao · CFO"
+            className="flex h-8 w-8 items-center justify-center rounded-full bg-stone-800 text-xs font-medium text-white"
+          >
+            MR
+          </div>
+        </div>
+      ) : (
+        <div className="mt-auto space-y-3">
+          <div className="rounded-xl border border-line bg-white p-3">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-medium">Autopilot</span>
+              <span className={`h-2 w-2 rounded-full ${paused ? 'bg-rose-500' : 'animate-pulse bg-emerald-500'}`} />
+            </div>
+            <p className="mt-1 text-[11px] leading-snug text-muted">
+              {paused ? 'Paused. Agent will only analyze and recommend.' : 'Autopilot on · 3 standing goals · 6 sources watched'}
+            </p>
+            <button
+              onClick={onTogglePause}
+              className={`mt-2 flex w-full items-center justify-center gap-1.5 rounded-lg py-1.5 text-xs font-medium transition ${
+                paused ? 'bg-brand text-white hover:bg-brand/90' : 'bg-rose-50 text-rose-700 hover:bg-rose-100'
+              }`}
+            >
+              {paused ? <PlayCircle size={14} /> : <PauseCircle size={14} />}
+              {paused ? 'Resume agent' : 'Emergency stop'}
+            </button>
+          </div>
+          <div className="flex items-center gap-2.5 px-1">
+            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-stone-800 text-xs font-medium text-white">MR</div>
+            <div className="leading-tight">
+              <div className="text-[13px] font-medium">Meera Rao</div>
+              <div className="text-[11px] text-muted">CFO · Northwind India</div>
+            </div>
+          </div>
+        </div>
+      )}
+    </aside>
+  )
+}

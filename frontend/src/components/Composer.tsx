@@ -1,0 +1,99 @@
+import { ArrowUp, ChevronDown, Database, Paperclip, Target } from 'lucide-react'
+import { useState } from 'react'
+
+export const modes = [
+  { id: 'L1', name: 'Analyze', desc: 'Read data, surface issues' },
+  { id: 'L2', name: 'Recommend', desc: 'Propose actions for you to decide' },
+  { id: 'L3', name: 'Execute', desc: 'Act within configured limits' },
+  { id: 'L4', name: 'Orchestrate', desc: 'Pursue a goal across agents' },
+] as const
+
+interface Props {
+  onSubmit: (q: string) => void
+  placeholder?: string
+  compact?: boolean
+  initial?: string
+}
+
+export function Composer({ onSubmit, placeholder = 'Set a financial goal or ask anything…', compact, initial = '' }: Props) {
+  const [value, setValue] = useState(initial)
+  const [mode, setMode] = useState<(typeof modes)[number]>(modes[3])
+  const [open, setOpen] = useState(false)
+
+  const submit = () => {
+    if (!value.trim()) return
+    onSubmit(value.trim())
+    setValue('')
+  }
+
+  return (
+    <div className="relative rounded-2xl border border-line bg-white shadow-[0_1px_2px_rgba(0,0,0,0.04),0_4px_16px_rgba(0,0,0,0.04)] transition focus-within:border-stone-300 focus-within:shadow-[0_1px_2px_rgba(0,0,0,0.04),0_8px_24px_rgba(0,0,0,0.06)]">
+      <textarea
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault()
+            submit()
+          }
+        }}
+        rows={compact ? 1 : 2}
+        placeholder={placeholder}
+        className="w-full resize-none bg-transparent px-4 pt-3.5 text-[15px] text-ink outline-none placeholder:text-stone-400"
+      />
+      <div className="flex items-center justify-between px-2.5 pb-2.5">
+        <div className="flex items-center gap-1">
+          <div className="relative">
+            <button
+              onClick={() => setOpen((o) => !o)}
+              className="flex items-center gap-1.5 rounded-lg bg-brand-soft px-2.5 py-1.5 text-xs font-medium text-brand transition hover:bg-brand/15"
+            >
+              <Target size={13} />
+              {mode.name}
+              <span className="rounded bg-white/70 px-1 text-[10px]">{mode.id}</span>
+              <ChevronDown size={12} />
+            </button>
+            {open && (
+              <div className="absolute bottom-full left-0 z-20 mb-2 w-64 rounded-xl border border-line bg-white p-1.5 shadow-lg fade-up">
+                <div className="px-2 py-1 text-[11px] font-medium uppercase tracking-wider text-stone-400">Autonomy level</div>
+                {modes.map((m) => (
+                  <button
+                    key={m.id}
+                    onClick={() => {
+                      setMode(m)
+                      setOpen(false)
+                    }}
+                    className={`flex w-full items-start gap-2.5 rounded-lg px-2 py-2 text-left hover:bg-stone-50 ${
+                      m.id === mode.id ? 'bg-stone-50' : ''
+                    }`}
+                  >
+                    <span className="mt-0.5 rounded bg-stone-100 px-1 text-[10px] font-semibold text-stone-600">{m.id}</span>
+                    <span>
+                      <span className="block text-[13px] font-medium">{m.name}</span>
+                      <span className="block text-[11px] text-muted">{m.desc}</span>
+                    </span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+          <button className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs text-stone-600 hover:bg-stone-100">
+            <Database size={13} /> 6 sources
+          </button>
+        </div>
+        <div className="flex items-center gap-1">
+          <button className="rounded-lg p-2 text-stone-500 hover:bg-stone-100">
+            <Paperclip size={15} />
+          </button>
+          <button
+            onClick={submit}
+            disabled={!value.trim()}
+            className="flex h-8 w-8 items-center justify-center rounded-full bg-brand text-white transition hover:bg-brand/90 disabled:bg-stone-200 disabled:text-stone-400"
+          >
+            <ArrowUp size={16} />
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
