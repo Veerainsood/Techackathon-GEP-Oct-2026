@@ -270,6 +270,20 @@
       "title": "Status",
       "type": "string"
     },
+    "error": {
+      "anyOf": [
+        {
+          "maxLength": 2000,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Why the sync failed (database.sync.failed)",
+      "title": "Error"
+    },
     "published_at": {
       "anyOf": [
         {

@@ -177,12 +177,16 @@ def build_engine(settings: Optional[Settings] = None, register_defaults: bool = 
     explorer_llm, hercules_llm, adjudicator_llm = _providers(settings, llm_providers)
     gateway = SourceGateway()
     if register_defaults:
+        # "public" holds knowledge-ingestion's bookkeeping tables (raw HubSpot payloads), which agents must not read.
         gateway.register(PostgresSourceAdapter("finance_pg", pg_uri(settings.data_db), name="Finance warehouse",
-                                               description="Operational finance warehouse"), tenants=settings.tenants)
-        # HubSpot CRM data written by knowledge-ingestion. Its sync events use source_id "hubspot" (UDRE_SOURCE_ID).
+                                               description="Operational finance warehouse",
+                                               exclude_schemas=["public", "hubspot"]), tenants=settings.tenants)
+        # HubSpot CRM data written by knowledge-ingestion. Its sync events use source_id "hubspot" (UDRE_SOURCE_ID)
+        # and name exactly these collections: contacts in their own schema, companies in prospect_accounts.
         gateway.register(PostgresSourceAdapter("hubspot", pg_uri(settings.data_db), name="HubSpot CRM",
-                                               description="Contacts synced from HubSpot by knowledge-ingestion",
-                                               include_schemas=["hubspot"]), tenants=settings.tenants)
+                                               description="Contacts and companies synced from HubSpot by knowledge-ingestion",
+                                               include_schemas=["hubspot"],
+                                               include_collections=["pipeline_crm.prospect_accounts"]), tenants=settings.tenants)
         if Path(settings.uploads_dir).exists() and any(Path(settings.uploads_dir).iterdir()):
             gateway.register(FileSourceAdapter("uploads", [settings.uploads_dir], name="Uploaded files",
                                                description="User-uploaded CSV / Excel / JSON / Parquet files"),

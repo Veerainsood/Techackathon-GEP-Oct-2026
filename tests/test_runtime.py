@@ -528,3 +528,49 @@ def test_api_streams_real_events_and_analyses_uploaded_file(rt):
         c.delete(f"/workspaces/{ws['workspace_id']}", headers=h)
     finally:
         api.engine = original
+
+
+# ------------------------------------------------------------------ knowledge-ingestion integration
+def test_failed_event_with_top_level_error_is_recorded(rt):
+    process(rt, event(event_type="database.sync.failed", status="failed", collections=[], error="HubSpot returned 502"))
+    v = rt["e"].runtime_store.source_version(TENANT, "sync_lab")
+    assert v["sync_status"] == "sync_failed" and v["last_error"] == "HubSpot returned 502"
+
+
+def test_source_scoping_hides_ingestion_tables_and_exposes_hubspot_collections(rt):
+    e = rt["e"]
+    ctx = AccessContext(tenant_id="default", user_id="analyst")
+    finance = e.gateway.collections(ctx, "finance_pg")
+    assert finance and not any(c.startswith(("public.", "hubspot.")) for c in finance)
+    assert "pipeline_crm.prospect_accounts" in e.gateway.collections(ctx, "hubspot")
+
+
+def test_change_through_one_source_flags_answers_of_a_source_on_the_same_database(rt):
+    from udre.gateway.postgres_adapter import PostgresSourceAdapter
+
+    e = rt["e"]
+    e.gateway.register(PostgresSourceAdapter("sync_lab_view", rt["lab"], include_collections=["lab.invoices"]), tenants=[TENANT])
+    try:
+        assert e.gateway.collections(rt["ctx"], "sync_lab_view") == ["lab.invoices"]
+        aid = e.runtime_store.save_answer(TENANT, "open invoices?", {}, ["sync_lab_view"], ["lab.invoices"], {"final_answer": "x"})
+        write(rt, "UPDATE lab.invoices SET status = 'PAID', updated_at = %s WHERE invoice_id = 'I0001'", (at(7),))
+        res = process(rt, event(collections=[{"name": "lab.invoices", "timestamp_column": "updated_at",
+                                              "changes": [{"op": "update", "key": {"invoice_id": "I0001"}}]}]))
+        assert any("shared with source sync_lab_view" in n for n in summary(res)["notes"])
+        assert next(a for a in e.runtime_store.answers(TENANT, 50) if a["answer_id"] == aid)["stale"]
+    finally:
+        e.gateway.unregister("sync_lab_view")
+
+
+def test_table_created_after_startup_is_investigated_without_restart(rt):
+    write(rt, "CREATE TABLE lab.contacts (contact_id VARCHAR(20) PRIMARY KEY, email TEXT, synced_at TIMESTAMP NOT NULL)")
+    write(rt, "INSERT INTO lab.contacts VALUES ('K1', 'k1@example.com', %s)", (at(5),))
+    try:
+        res = process(rt, event(collections=[{"name": "lab.contacts", "timestamp_column": "synced_at",
+                                              "changes": [{"op": "insert", "key": {"contact_id": "K1"}}]}]))
+        c = coll(res, "lab.contacts")
+        assert c["status"] == "ok" and c["schema_changed"] and summary(res)["schema_changed"]
+        assert summary(res)["knowledge"]["action"] == "ontology_rebuilt"
+    finally:
+        write(rt, "DROP TABLE lab.contacts")
+        rt["e"].gateway.adapter(rt["ctx"], "sync_lab").refresh()

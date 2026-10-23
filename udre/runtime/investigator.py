@@ -114,11 +114,18 @@ class ChangeInvestigator:
 
         if ev.event_type == "database.sync.failed" or ev.status == "failed":
             self.store.mark_sync_status(ev.tenant_id, ev.source_id, "sync_failed",
-                                        "; ".join(c.error or "" for c in ev.collections if c.error) or "producer reported failure")
+                                        "; ".join(c.error or "" for c in ev.collections if c.error) or ev.error
+                                        or "producer reported failure")
             return {"event_id": ev.event_id, "kind": "sync_failed", "notes": notes + ["no investigation: sync did not complete; "
                                                                                      "watermarks and versions unchanged"]}
 
         known = set(self.e.gateway.collections(ctx, ev.source_id))
+        if any(c.name not in known for c in ev.collections) and hasattr(adapter, "refresh"):
+            adapter.refresh()  # the producer may have created the table after the catalog was cached
+            before, known = known, set(self.e.gateway.collections(ctx, ev.source_id))
+            created = known - before
+        else:
+            created = set()
         findings: List[CollectionFinding] = []
         for col in ev.collections:
             f = CollectionFinding(name=col.name)
@@ -130,6 +137,9 @@ class ChangeInvestigator:
                 f.status, f.notes = "missing_collection", [f"collection {col.name} is not visible in source {ev.source_id}"]
                 continue
             self._investigate_collection(ctx, adapter, ev, col, f)
+            if col.name in created:
+                f.schema_changed = True
+                f.notes.append("new collection: first seen in this event")
 
         schema_changed = any(f.schema_changed for f in findings) or bool(
             ev.schema_version and prev.get("schema_version") and ev.schema_version != prev.get("schema_version"))
@@ -138,6 +148,8 @@ class ChangeInvestigator:
         knowledge = self._refresh_knowledge(ctx, ev, schema_changed, [f.name for f in findings if f.status == "ok"], ev.data_version)
         stale = self.store.mark_answers_stale(ev.tenant_id, ev.source_id, changed + dependents,
                                               f"{ev.data_version}: changes in {', '.join(changed + dependents)}") if changed else 0
+        if changed:
+            stale += self._propagate_to_siblings(ctx, ev, adapter, changed + dependents, notes)
         for f in findings:  # watermarks only advance for collections verified through a window or keys
             if f.status == "ok":
                 f.watermark = self.store.cover(ev.tenant_id, ev.source_id, f.name, ev.window_start, ev.window_end, ev.event_id)
@@ -287,6 +299,28 @@ class ChangeInvestigator:
                                      if m["properties"].get("collection") in {coll} | {d["collection"] for d in f.affected_dependents}})
 
     # ------------------------------------------------------------------ knowledge / caches
+    def _propagate_to_siblings(self, ctx, ev: SyncEvent, adapter, collections: Sequence[str], notes: List[str]) -> int:
+        """Other sources reading the same database see the same rows: flag their answers and refresh their caches."""
+        uri = getattr(adapter, "uri", None)
+        if not uri:
+            return 0
+        stale = 0
+        for s in self.e.gateway.sources(ctx):
+            if s.source_id == ev.source_id or getattr(self.e.gateway.adapter(ctx, s.source_id), "uri", None) != uri:
+                continue
+            shared = [c for c in collections if c in set(self.e.gateway.collections(ctx, s.source_id))]
+            if not shared:
+                continue
+            stale += self.store.mark_answers_stale(ev.tenant_id, s.source_id, shared, f"{ev.data_version} (via {ev.source_id}): "
+                                                   f"changes in {', '.join(shared)}")
+            self.e.invalidate_caches(ctx.tenant_id, s.source_id)
+            try:
+                self.e.refresh_collection_profiles(ctx, s.source_id, shared)
+            except Exception as exc:  # the sibling's knowledge is refreshed on its next rebuild
+                notes.append(f"profile refresh for {s.source_id} failed: {type(exc).__name__}")
+            notes.append(f"shared with source {s.source_id}: {', '.join(shared)} (answers flagged, caches refreshed)")
+        return stale
+
     def _refresh_knowledge(self, ctx, ev: SyncEvent, schema_changed: bool, collections: Sequence[str] = (),
                            data_version: Optional[str] = None) -> Dict[str, Any]:
         out: Dict[str, Any] = {"action": None}

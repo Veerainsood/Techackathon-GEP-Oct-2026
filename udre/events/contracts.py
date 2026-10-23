@@ -61,6 +61,7 @@ class SyncEvent(BaseModel):
     knowledge_version: Optional[str] = None
     commit_id: Optional[str] = None
     status: Literal["completed", "failed", "partial"] = "completed"
+    error: Optional[str] = Field(None, max_length=2000, description="Why the sync failed (database.sync.failed)")
     published_at: Optional[datetime] = None
     producer: Optional[str] = None
 

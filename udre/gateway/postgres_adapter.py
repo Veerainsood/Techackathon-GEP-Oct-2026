@@ -17,9 +17,11 @@ SYSTEM_SCHEMAS = ("pg_catalog", "information_schema", "pg_toast", "udre_kg", "ud
 class PostgresSourceAdapter(SQLSourceAdapter):
     def __init__(self, source_id: str, uri: str, name: str = "", description: str = "",
                  include_schemas: Optional[List[str]] = None, exclude_schemas: Optional[List[str]] = None,
-                 capabilities: Optional[SourceCapabilities] = None):
+                 capabilities: Optional[SourceCapabilities] = None, include_collections: Optional[List[str]] = None):
         self.uri = uri
         self.include_schemas = include_schemas
+        # Individual "schema.table" names exposed in addition to include_schemas.
+        self.include_collections = set(include_collections or [])
         self.exclude_schemas = set(exclude_schemas or []) | set(SYSTEM_SCHEMAS)
         self.descriptor = SourceDescriptor(
             source_id=source_id, name=name or source_id, source_type=SourceType.POSTGRESQL, description=description,
@@ -98,12 +100,17 @@ class PostgresSourceAdapter(SQLSourceAdapter):
                 "SELECT table_schema, table_name FROM information_schema.tables "
                 "WHERE table_type IN ('BASE TABLE', 'VIEW') ORDER BY 1, 2")
             out = []
+            scoped = bool(self.include_schemas or self.include_collections)
             for schema, table in rows:
+                name = f"{schema}.{table}"
+                if name in self.include_collections:
+                    out.append(name)
+                    continue
                 if schema in self.exclude_schemas or schema.startswith("pg_"):
                     continue
-                if self.include_schemas and schema not in self.include_schemas:
+                if scoped and schema not in (self.include_schemas or []):
                     continue
-                out.append(f"{schema}.{table}")
+                out.append(name)
             self._collections = out
         return list(self._collections)
 
