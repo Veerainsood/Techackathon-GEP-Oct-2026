@@ -12,3 +12,8 @@ exports/
 
 # internal DBA reference document - do not publish
 dba_ref.txt
+
+# generated skill references (regenerate with scripts/build_knowledge.py)
+udre/skills/database-investigation/references/
+udre/skills/database-investigation/generated/
+.udre_snapshots/

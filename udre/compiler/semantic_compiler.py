@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import threading
 from collections import Counter, defaultdict
 from typing import Any, Dict, List, Optional, Sequence, Tuple
@@ -25,6 +26,14 @@ from udre.ontology.embedding import cosine, embed
 from udre.ontology.graph import KnowledgeGraph
 
 _TYPE_CODE = {"numeric": "n", "text": "t", "temporal": "d", "boolean": "b"}
+PII_COLUMN = re.compile(r"(email|phone|mobile|ssn|tax_id|passport|iban|account_number|address|serial|imei|password|token|secret)", re.I)
+
+
+def mask_sample(column: str, value: Any) -> Any:
+    if value is None or not PII_COLUMN.search(column):
+        return value
+    s = str(value)
+    return s[:2] + "***" if len(s) > 2 else "***"
 
 try:
     import tiktoken
@@ -140,13 +149,13 @@ class SemanticContextCompiler:
                     code = f"@{shared_idx[sig]}" if sig in shared_idx else sig
                     p = c["properties"]
                     if p.get("is_dimension") and p.get("top_values"):
-                        vals = [tv["value"] for tv in p["top_values"]]
+                        vals = [mask_sample(p["column"], tv["value"]) for tv in p["top_values"]]
                         vkey = hashlib.sha1(json.dumps(vals, default=str).encode()).hexdigest()
                         if vkey not in value_ids:
                             value_ids[vkey] = f"v{len(value_ids)}"
                             value_dict[value_ids[vkey]] = vals
                         code += f"={value_ids[vkey]}"
-                    elif p.get("is_measure") and p.get("min") is not None:
+                    elif p.get("is_measure") and p.get("min") is not None and not PII_COLUMN.search(p["column"]):
                         code += f"[{_fmt(p['min'])}..{_fmt(p['max'])}]"
                     encoded.append(code)
                 entry = {"s": sid, "n": cname, "d": _short(props.get("description"), 110), "r": props.get("row_count"),
@@ -157,7 +166,7 @@ class SemanticContextCompiler:
                 if sample_rows:
                     res = adapter.sample_rows(cname, sample_rows)
                     if res.succeeded:
-                        samples[key] = [{k: _short(v, 24) for k, v in r.items()} for r in res.rows]
+                        samples[key] = [{k: _short(mask_sample(k, v), 24) for k, v in r.items()} for r in res.rows]
             raw_doc["sources"].append(raw_src)
             for e in part["concept_edges"]:
                 concept = e["target_node_id"].rsplit(":", 1)[-1]

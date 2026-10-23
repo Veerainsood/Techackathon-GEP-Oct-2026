@@ -8,8 +8,11 @@ values missing from the dictionary and to check its plan.  It never receives Exp
 
 from __future__ import annotations
 
+import asyncio
 import time
 from typing import Any, Dict, List, Sequence
+
+from udre.llm.base import LLMUnavailable
 
 from udre.agents.catalog import view_from_context
 from udre.agents.common import build_candidate, evidence_from_result, execute_with_repair
@@ -31,12 +34,55 @@ HERCULES_WEIGHTS = PlannerWeights(name=2.0, description=0.0, collection=1.0, con
 class HerculesAgent:
     name = "Hercules"
 
-    def __init__(self, packs: Sequence[Dict[str, Any]], compiler: SemanticContextCompiler, context_budget: int = 32000):
+    def __init__(self, packs: Sequence[Dict[str, Any]], compiler: SemanticContextCompiler, context_budget: int = 32000,
+                 llm=None, max_turns: int = 20):
         self.packs = packs
         self.compiler = compiler
         self.context_budget = context_budget
+        self.llm = llm
+        self.max_turns = max_turns
 
-    def run(self, question: str, session: ToolSession, compiled: CompiledSemanticContext) -> AgentReasoningCandidate:
+    def run(self, question: str, session: ToolSession, compiled: CompiledSemanticContext, on_event=None) -> AgentReasoningCandidate:
+        if self.llm is None:
+            return self.run_deterministic(question, session, compiled)
+        try:
+            return asyncio.run(self.arun_llm(question, session, compiled, on_event))
+        except LLMUnavailable as exc:
+            fresh = ToolSession(session.toolbox, session.ctx, session.agent, max_calls=session.max_calls)
+            cand = self.run_deterministic(question, fresh, compiled)
+            cand.reasoning_mode, cand.failure = "deterministic_fallback", f"LLM unavailable: {exc}"
+            return cand
+
+    async def arun_llm(self, question: str, session: ToolSession, compiled: CompiledSemanticContext,
+                       on_event=None) -> AgentReasoningCandidate:
+        import json
+
+        from udre.agents.llm_agent import TOOL_SPECS, LLMInvestigation, candidate_from_submission, serialize_result
+        from udre.agents.prompts import HERCULES_SYSTEM, TRUST_RULES
+
+        t0 = time.perf_counter()
+        text, info = self.compiler.render(compiled, question, self.context_budget)
+        inclusion = {k: info.get(k) for k in ("full_tokens", "rendered_tokens", "collections_total", "collections_included",
+                                              "samples_included")}
+        if info.get("collections_included", 0) < info.get("collections_total", 0):
+            inclusion["omitted_collections_note"] = ("Only the most relevant collections fit the budget; omitted ones exist and "
+                                                     "can be found with discover_collections / list_collection_contexts.")
+        user = (f"Question: {question}\n\nInclusion report: {json.dumps(inclusion)}\n\nCompressed overview of authorized data:\n"
+                + serialize_result("global_context", {"overview": json.loads(text)})
+                + "\n\nForm your own interpretation and plan first, then verify with tools and submit.")
+        loop = LLMInvestigation(self.llm, self.name, HERCULES_SYSTEM.format(trust=TRUST_RULES), session,
+                                max_turns=self.max_turns, on_event=on_event)
+        sub, final = await loop.run(user, list(TOOL_SPECS))
+        sid = sub.source_id if sub else ""
+        colls = session.toolbox.gateway.collections(session.ctx, sid) if sid else []
+        dialect = session.toolbox.gateway.adapter(session.ctx, sid).dialect if sid else None
+        cand = candidate_from_submission(self.name, question, sub, final, session, loop.usage,
+                                         (time.perf_counter() - t0) * 1000, colls, dialect, context_tokens=info["rendered_tokens"])
+        if cand.investigation_trace is not None:
+            cand.investigation_trace.known_facts.insert(0, f"context inclusion: {json.dumps(inclusion)}")
+        return cand
+
+    def run_deterministic(self, question: str, session: ToolSession, compiled: CompiledSemanticContext) -> AgentReasoningCandidate:
         t0 = time.perf_counter()
         st = ExplorerInvestigationState(user_requirements=[question])
         _text, render_info = self.compiler.render(compiled, question, self.context_budget)

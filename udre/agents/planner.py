@@ -599,6 +599,117 @@ def _lit(v: Any) -> str:
     return "'" + str(v).replace("'", "''") + "'"
 
 
+def plan_from_sql(sql: str, source_id: str, dialect: Optional[str], known_collections: Sequence[str]) -> QueryPlan:
+    """Recover a QueryPlan from arbitrary (e.g. model-written) SQL so deterministic validators can run on it.
+
+    Best effort: handles single-SELECT queries with joins, equality/LIKE/IN/IS NULL/EXTRACT(YEAR) filters,
+    one aggregate and GROUP BY. Unrecognized constructs are recorded in ``rationale``.
+    """
+    import sqlglot
+    from sqlglot import exp
+
+    tree = sqlglot.parse_one(sql, read=dialect)
+    select = tree if isinstance(tree, exp.Select) else tree.find(exp.Select)
+    known = set(known_collections)
+    alias_to_coll: Dict[str, str] = {}
+    for t in tree.find_all(exp.Table):
+        name = ".".join(p for p in (t.db, t.name) if p)
+        coll = name if name in known else next((k for k in known if k.split(".")[-1] == t.name), name)
+        alias_to_coll[t.alias_or_name] = coll
+        alias_to_coll.setdefault(t.name, coll)
+    from_expr = select.args.get("from") or select.args.get("from_")
+    primary_tbl = from_expr.find(exp.Table) if from_expr else next(iter(tree.find_all(exp.Table)), None)
+    primary = alias_to_coll.get(primary_tbl.alias_or_name) if primary_tbl else ""
+    rationale: List[str] = ["plan recovered from SQL"]
+
+    def coll_of(col: exp.Column) -> str:
+        if col.table and col.table in alias_to_coll:
+            return alias_to_coll[col.table]
+        return primary
+
+    joins: List[JoinSpec] = []
+    for j in select.args.get("joins") or []:
+        on = j.args.get("on")
+        right_tbl = j.find(exp.Table)
+        right = alias_to_coll.get(right_tbl.alias_or_name, "") if right_tbl else ""
+        eq = on.find(exp.EQ) if on else None
+        if eq and isinstance(eq.left, exp.Column) and isinstance(eq.right, exp.Column):
+            a, b = eq.left, eq.right
+            if coll_of(b) == right:
+                joins.append(JoinSpec(left=coll_of(a), left_col=a.name, right=right, right_col=b.name))
+            else:
+                joins.append(JoinSpec(left=coll_of(b), left_col=b.name, right=right, right_col=a.name))
+    agg_node = next(iter(select.find_all(exp.AggFunc)), None)
+    aggregation, measure = "LIST", None
+    if agg_node is not None:
+        aggregation = {"Sum": "SUM", "Count": "COUNT", "Avg": "AVG", "Max": "MAX", "Min": "MIN"}.get(type(agg_node).__name__, "SUM")
+        col = agg_node.find(exp.Column)
+        if col is not None and aggregation != "COUNT":
+            measure = (coll_of(col), col.name)
+    filters: List[FilterSpec] = []
+    where = select.args.get("where")
+    if where is not None:
+        conds = list(where.this.flatten()) if isinstance(where.this, exp.And) else [where.this]
+        for c in conds:
+            col = c.find(exp.Column)
+            if col is None:
+                rationale.append(f"unparsed condition: {c.sql()[:80]}")
+                continue
+            lit = c.find(exp.Literal)
+            val = lit.this if lit is not None else None
+            if lit is not None and not lit.is_string:
+                try:
+                    val = int(val) if str(val).isdigit() else float(val)
+                except ValueError:
+                    pass
+            if isinstance(c, exp.Is):
+                filters.append(FilterSpec(collection=coll_of(col), column=col.name, op="IS NULL", origin="sql", matched_text=c.sql()))
+            elif isinstance(c, (exp.EQ, exp.NEQ)) and c.find(exp.Extract):
+                filters.append(FilterSpec(collection=coll_of(col), column=col.name, op="YEAR", value=val, origin="time", matched_text=c.sql()))
+            elif isinstance(c, exp.EQ):
+                is_period = isinstance(val, str) and re.fullmatch(r"\d{4}-\d{2}", val or "")
+                filters.append(FilterSpec(collection=coll_of(col), column=col.name, op="=", value=val,
+                                          origin="time" if is_period else "value_match", matched_text=str(val)))
+            elif isinstance(c, exp.NEQ):
+                filters.append(FilterSpec(collection=coll_of(col), column=col.name, op="<>", value=val, origin="exclusion", matched_text=str(val)))
+            elif isinstance(c, exp.Like):
+                filters.append(FilterSpec(collection=coll_of(col), column=col.name, op="LIKE", value=val, origin="time"
+                                          if re.match(r"\d{4}", str(val)) else "value_match", matched_text=str(val)))
+            else:
+                rationale.append(f"condition kept only in SQL: {c.sql()[:80]}")
+    group = select.args.get("group")
+    group_by = [(coll_of(g), g.name) for g in (group.expressions if group else []) if isinstance(g, exp.Column)]
+    limit = None
+    lim = select.args.get("limit")
+    if lim is not None and isinstance(lim.expression, exp.Literal):
+        limit = int(lim.expression.this)
+    if aggregation == "SUM" and group_by and limit:
+        aggregation = "TOP"
+    return QueryPlan(source_id=source_id, primary_collection=primary or "", aggregation=aggregation, measure=measure,
+                     group_by=group_by, filters=filters, joins=joins, limit=limit, rationale=rationale)
+
+
+def structured_from_rows(rows: List[Dict[str, Any]]) -> Any:
+    """Scalar for a single numeric cell, otherwise {label: value} using the numeric column (prefer 'value')."""
+    if not rows:
+        return None
+    cols = list(rows[0])
+
+    def numeric(c: str) -> bool:
+        return all(isinstance(r.get(c), (int, float)) and not isinstance(r.get(c), bool) or r.get(c) is None for r in rows)
+
+    nums = [c for c in cols if numeric(c)]
+    if not nums:
+        return None
+    vcol = "value" if "value" in nums else nums[-1]
+    keys = [c for c in cols if c != vcol and c not in nums] or [c for c in cols if c != vcol]
+    if len(rows) == 1 and not keys:
+        return rows[0][vcol]
+    if not keys:
+        return rows[0][vcol]
+    return {str(r[keys[0]]): r[vcol] for r in rows}
+
+
 def structured_value(plan: QueryPlan, rows: List[Dict[str, Any]]) -> Any:
     if not rows:
         return None

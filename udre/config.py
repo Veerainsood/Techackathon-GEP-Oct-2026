@@ -19,7 +19,7 @@ class Settings:
     explorer_max_steps: int = int(os.environ.get("UDRE_EXPLORER_MAX_STEPS", "14"))
     hercules_context_tokens: int = int(os.environ.get("UDRE_HERCULES_CONTEXT_TOKENS", "32000"))
     max_rows: int = int(os.environ.get("UDRE_MAX_ROWS", "1000"))
-    llm_model: str = os.environ.get("UDRE_LLM_MODEL", "")
+    reasoning_mode: str = os.environ.get("UDRE_REASONING_MODE", "auto")  # auto | offline | llm
     tenants: List[str] = field(default_factory=lambda: ["default"])
 
 

@@ -12,6 +12,7 @@ candidate content crosses between the branches before verification.
 from __future__ import annotations
 
 import operator
+import threading
 import time
 import uuid
 from typing import Annotated, Any, Dict, List, Optional, TypedDict
@@ -63,8 +64,23 @@ class DualPathWorkflow:
     def __init__(self, engine: "Any"):
         self.e = engine
         self._contexts: Dict[str, AccessContext] = {}
+        self._sinks: Dict[str, Any] = {}
+        self._events: Dict[str, List[Dict[str, Any]]] = {}
+        self._ev_lock = threading.Lock()
         self.checkpointer = InMemorySaver()
         self.graph = self._build().compile(checkpointer=self.checkpointer)
+
+    def _sink(self, request_id: str):
+        def emit(event: Dict[str, Any]) -> None:
+            with self._ev_lock:
+                self._events.setdefault(request_id, []).append(event)
+            cb = self._sinks.get(request_id)
+            if cb:
+                try:
+                    cb(event)
+                except Exception:
+                    pass
+        return emit
 
     # ------------------------------------------------------------------ helpers
     def _ctx(self, state: UDREState) -> AccessContext:
@@ -72,7 +88,7 @@ class DualPathWorkflow:
                                                                         max_rows=self.e.settings.max_rows)
 
     def _toolbox(self, state: UDREState) -> ToolBox:
-        return ToolBox(self.e.gateway, self.e.kg, self.e.memory if state.get("use_memory") else None, self.e.settings.exports_dir)
+        return self.e.toolbox(use_memory=bool(state.get("use_memory")))
 
     # ------------------------------------------------------------------ nodes
     def parse_request(self, state: UDREState) -> Dict[str, Any]:
@@ -90,10 +106,9 @@ class DualPathWorkflow:
             raise PermissionError("no data sources are accessible to this user")
         versions = {}
         for sid in sources:
-            report = self.e.builder.build(ctx, sid)  # incremental: no-op when the schema fingerprint is unchanged
-            versions[sid] = report.schema_version
-            if self.e.memory and not report.skipped:
-                self.e.memory.invalidate_source(sid, report.schema_version)
+            # incremental: ontology build and reference generation are no-ops when nothing changed
+            prep = self.e.prepare_source(ctx, sid)
+            versions[sid] = prep["ontology"]["schema_version"]
         return {"sources": sources, "versions": versions, "trace": _t("resolve_sources", t0, sources=sources)}
 
     def retrieve_knowledge(self, state: UDREState) -> Dict[str, Any]:
@@ -118,9 +133,13 @@ class DualPathWorkflow:
         t0 = time.perf_counter()
         session = ToolSession(self._toolbox(state), self._ctx(state), "Explorer", max_calls=self.e.settings.explorer_max_steps * 3)
         try:
-            cand = self.e.explorer.run(state["question"], session)
+            emit = self._sink(state["request_id"])
+            emit({"agent": "Explorer", "event": "started", "mode": "llm" if self.e.explorer.llm else "deterministic_offline"})
+            cand = self.e.explorer.run(state["question"], session, on_event=emit)
+            emit({"agent": "Explorer", "event": "candidate", "value": str(cand.structured_value)[:200], "mode": cand.reasoning_mode})
             return {"explorer_candidate": cand.model_dump(mode="json"),
-                    "trace": _t("explorer", t0, tool_calls=cand.tool_calls_count, value=str(cand.structured_value)[:80])}
+                    "trace": _t("explorer", t0, tool_calls=cand.tool_calls_count, value=str(cand.structured_value)[:80],
+                                mode=cand.reasoning_mode)}
         except (psycopg2.OperationalError, ConnectionError):
             raise
         except Exception as exc:
@@ -132,9 +151,13 @@ class DualPathWorkflow:
         session = ToolSession(self._toolbox(state), ctx, "Hercules", max_calls=30)
         try:
             compiled = self.e.compiled_context(ctx, use_memory=bool(state.get("use_memory")))
-            cand = self.e.hercules.run(state["question"], session, compiled)
+            emit = self._sink(state["request_id"])
+            emit({"agent": "Hercules", "event": "started", "mode": "llm" if self.e.hercules.llm else "deterministic_offline"})
+            cand = self.e.hercules.run(state["question"], session, compiled, on_event=emit)
+            emit({"agent": "Hercules", "event": "candidate", "value": str(cand.structured_value)[:200], "mode": cand.reasoning_mode})
             return {"hercules_candidate": cand.model_dump(mode="json"),
-                    "trace": _t("hercules", t0, tool_calls=cand.tool_calls_count, value=str(cand.structured_value)[:80])}
+                    "trace": _t("hercules", t0, tool_calls=cand.tool_calls_count, value=str(cand.structured_value)[:80],
+                                mode=cand.reasoning_mode)}
         except (psycopg2.OperationalError, ConnectionError):
             raise
         except Exception as exc:
@@ -159,7 +182,16 @@ class DualPathWorkflow:
             if not state.get(key):
                 continue
             cand = AgentReasoningCandidate(**state[key])
-            plan, view = self._view_for(ctx, cand)
+            if not cand.query_or_plan or not cand.source_id:
+                findings[name] = [ValidationFinding(validator_name="execution", passed=False, severity="error",
+                                                    message=f"no executable candidate ({cand.failure})").model_dump(mode="json")]
+                continue
+            try:
+                plan, view = self._view_for(ctx, cand)
+            except Exception as exc:
+                findings[name] = [ValidationFinding(validator_name="source_binding", passed=False, severity="error",
+                                                    message=f"plan could not be bound to the source: {exc}").model_dump(mode="json")]
+                continue
             result = self.e.gateway.execute_query(ctx, plan.source_id, cand.query_or_plan)
             fs = self.e.verifier.verify(ctx, state["question"], plan, cand.query_or_plan, result, view)
             findings[name] = [f.model_dump(mode="json") for f in fs]
@@ -290,9 +322,11 @@ class DualPathWorkflow:
         return g
 
     def run(self, question: str, ctx: AccessContext, mode: str = "dual", use_memory: bool = True,
-            export_formats: Optional[List[str]] = None) -> Dict[str, Any]:
+            export_formats: Optional[List[str]] = None, on_event=None) -> Dict[str, Any]:
         request_id = uuid.uuid4().hex[:12]
         self._contexts[request_id] = ctx
+        if on_event:
+            self._sinks[request_id] = on_event
         t0 = time.perf_counter()
         try:
             state = self.graph.invoke({"request_id": request_id, "question": question, "tenant_id": ctx.tenant_id,
@@ -301,5 +335,9 @@ class DualPathWorkflow:
                                       config={"configurable": {"thread_id": request_id}})
         finally:
             self._contexts.pop(request_id, None)
+            self._sinks.pop(request_id, None)
+            with self._ev_lock:
+                events = self._events.pop(request_id, [])
         state["total_ms"] = round((time.perf_counter() - t0) * 1000, 1)
+        state["events"] = events
         return state

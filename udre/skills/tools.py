@@ -10,6 +10,7 @@ recorded as a ``ToolObservation``.
 from __future__ import annotations
 
 import json
+import re
 import time
 from collections import deque
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
@@ -17,7 +18,7 @@ from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 from udre.compiler.semantic_compiler import count_tokens
 from udre.contracts.models import EdgeType, NodeType, ToolObservation
 from udre.export.exporter import export_result
-from udre.gateway.base import normalize_text
+from udre.gateway.base import jsonable, normalize_text
 from udre.gateway.registry import AccessContext, SourceGateway
 from udre.memory.learning_store import LearningStore
 from udre.ontology.builder import coll_id, col_id
@@ -26,7 +27,8 @@ from udre.ontology.graph import KnowledgeGraph
 
 TOOL_NAMES = ["discover_sources", "discover_collections", "describe_collection", "inspect_column",
               "search_column_values", "sample_rows", "explore_relationships", "lookup_knowledge", "execute_query",
-              "explain_query", "compare_results", "export_results"]
+              "explain_query", "compare_results", "export_results",
+              "list_skills", "load_skill", "list_collection_contexts", "load_collection_context", "execute_federated_query"]
 
 
 class ToolBudgetExceeded(RuntimeError):
@@ -34,11 +36,82 @@ class ToolBudgetExceeded(RuntimeError):
 
 
 class ToolBox:
-    def __init__(self, gateway: SourceGateway, kg: KnowledgeGraph, memory: Optional[LearningStore], exports_dir: str):
+    def __init__(self, gateway: SourceGateway, kg: KnowledgeGraph, memory: Optional[LearningStore], exports_dir: str,
+                 contexts: Any = None, skills: Any = None):
         self.gateway = gateway
         self.kg = kg
         self.memory = memory
         self.exports_dir = exports_dir
+        self.contexts = contexts
+        self.skills = skills
+
+    # ------------------------------------------------------------------ skills (progressive disclosure)
+    def list_skills(self, ctx: AccessContext) -> List[Dict[str, Any]]:
+        return self.skills.list_skills() if self.skills else []
+
+    def load_skill(self, ctx: AccessContext, skill_id: str) -> Dict[str, Any]:
+        if not self.skills:
+            raise KeyError("no skill registry configured")
+        return self.skills.load_skill(skill_id)
+
+    def list_collection_contexts(self, ctx: AccessContext, source_id: str) -> List[Dict[str, Any]]:
+        if not self.contexts:
+            return []
+        return self.contexts.list_collection_contexts(ctx, source_id)
+
+    def load_collection_context(self, ctx: AccessContext, source_id: str, collection: str,
+                                include_value_profile: bool = False) -> Dict[str, Any]:
+        if not self.contexts:
+            raise KeyError("no collection context generator configured")
+        return self.contexts.load_collection_context(ctx, source_id, collection, include_value_profile)
+
+    def collection_catalog(self, ctx: AccessContext) -> List[Dict[str, Any]]:
+        return self.contexts.catalog(ctx) if self.contexts else self.discover_collections(ctx)
+
+    # ------------------------------------------------------------------ cross-source access without native joins
+    def execute_federated_query(self, ctx: AccessContext, parts: Dict[str, Dict[str, Any]], combine_sql: str,
+                                max_rows: int = 200) -> Dict[str, Any]:
+        """Run bounded, permission-checked sub-queries on each source, then combine them locally.
+
+        ``parts`` maps an alias to ``{"source_id": ..., "query": ...}``; ``combine_sql`` is a read-only
+        DuckDB query over those aliases.  Each part is capped by the caller's row limit, so the combined
+        result is only as complete as the parts (``truncated_parts`` reports any cap that was hit).
+        """
+        import duckdb
+        import pandas as pd
+
+        from udre.gateway.sql_guard import UnsafeQueryError, analyze, assert_read_only
+
+        con = duckdb.connect(":memory:")
+        provenance, truncated = {}, []
+        try:
+            for alias, spec in parts.items():
+                if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", alias):
+                    raise ValueError(f"invalid alias {alias}")
+                res = self.gateway.execute_query(ctx, spec["source_id"], spec["query"], max_rows=ctx.max_rows)
+                if not res.succeeded:
+                    return {"succeeded": False, "error_message": f"part {alias}: {res.error_message}", "rows": []}
+                if res.truncated:
+                    truncated.append(alias)
+                con.register("__part", pd.DataFrame(res.rows, columns=res.columns))
+                con.execute(f'CREATE TABLE "{alias}" AS SELECT * FROM "__part"')
+                con.unregister("__part")
+                provenance[alias] = dict(res.provenance, source_id=spec["source_id"], rows=res.row_count)
+            try:
+                assert_read_only(combine_sql, "duckdb")
+                unknown = analyze(combine_sql, "duckdb").tables - set(parts)
+                if unknown:
+                    raise UnsafeQueryError(f"combine query may only reference part aliases, got {sorted(unknown)}")
+            except UnsafeQueryError as exc:
+                return {"succeeded": False, "error_message": f"REJECTED: {exc}", "rows": []}
+            cur = con.execute(combine_sql)
+            cols = [d[0] for d in cur.description]
+            rows = cur.fetchmany(max_rows + 1)
+            return {"succeeded": True, "columns": cols, "rows": [dict(zip(cols, map(jsonable, r))) for r in rows[:max_rows]],
+                    "row_count": min(len(rows), max_rows), "truncated": len(rows) > max_rows, "truncated_parts": truncated,
+                    "provenance": provenance}
+        finally:
+            con.close()
 
     # ------------------------------------------------------------------ 1
     def discover_sources(self, ctx: AccessContext) -> List[Dict[str, Any]]:
@@ -252,7 +325,7 @@ class ToolSession:
         self.tokens_observed = 0
 
     def call(self, tool: str, objective: str, phase: str, **kwargs: Any) -> Any:
-        if tool not in TOOL_NAMES and tool not in ("join_path", "relationship_graph", "source_versions"):
+        if tool not in TOOL_NAMES and tool not in ("join_path", "relationship_graph", "source_versions", "collection_catalog"):
             raise ValueError(f"unknown tool {tool}")
         if not objective:
             raise ValueError("every tool call must state its investigation objective")

@@ -109,6 +109,11 @@ class PostgresSourceAdapter(SQLSourceAdapter):
             LEFT JOIN pg_class ft ON ft.oid = con.confrelid LEFT JOIN pg_namespace fn ON fn.oid = ft.relnamespace
             LEFT JOIN pg_attribute fa ON fa.attrelid = con.confrelid AND fa.attnum = con.confkey[k.ord]
             WHERE con.contype IN ('p', 'f')""")
+        _c, idx = self._run("SELECT schemaname, tablename, indexdef FROM pg_indexes "
+                            "WHERE schemaname NOT IN ('pg_catalog', 'information_schema')")
+        indexes: Dict[str, List[str]] = {}
+        for s, t, d in idx:
+            indexes.setdefault(f"{s}.{t}", []).append(d)
         desc = {f"{s}.{t}": (d or "", int(n or 0)) for s, t, d, n in tdesc}
         pks: Dict[str, set] = {}
         fks: Dict[str, Dict[str, str]] = {}
@@ -133,7 +138,8 @@ class PostgresSourceAdapter(SQLSourceAdapter):
                 source_id=self.source_id, collection_name=table, schema_name=schema, full_name=key,
                 row_count=max(desc.get(key, ("", 0))[1], 0), columns=columns, description=desc.get(key, ("", 0))[0],
                 primary_keys=sorted(pks.get(key, set())),
-                foreign_keys=[{"column": c, "references": r} for c, r in sorted(fks.get(key, {}).items())])
+                foreign_keys=[{"column": c, "references": r} for c, r in sorted(fks.get(key, {}).items())],
+                indexes=sorted(indexes.get(key, [])))
 
     def describe_collection(self, collection: str) -> CollectionSchema:
         if not self._schema_cache:

@@ -132,8 +132,8 @@ class Adjudicator:
         evidence: List[EvidenceReference] = [e for n in names for e in cands[n].evidence_references]
         total_tokens = sum(c.tokens_used for c in cands.values())
         latency = max((c.latency_ms for c in cands.values()), default=0.0)
-        ambiguous = [q for n in names for q in cands[n].open_questions
-                     if "several measures" in q or "interpreted as calendar year" in q]
+        ambiguous = [a.get("detail", a["type"]) for n in names for a in plan_of(cands[n]).ambiguities
+                     if a.get("type") in ("metric_choice", "relative_time", "agent_abstained")]
 
         if len(names) == 1:
             n = names[0]

@@ -53,6 +53,26 @@ def jsonable(v: Any) -> Any:
     return str(v)
 
 
+def observed_types(cols: Sequence[str], rows: Sequence[tuple]) -> Dict[str, str]:
+    """Type of each result column, inferred from the first non-null value."""
+    out: Dict[str, str] = {}
+    for i, c in enumerate(cols):
+        v = next((r[i] for r in rows if r[i] is not None), None)
+        if v is None:
+            out[c] = "unknown"
+        elif isinstance(v, bool):
+            out[c] = "boolean"
+        elif isinstance(v, int):
+            out[c] = "integer"
+        elif isinstance(v, float) or type(v).__name__ == "Decimal":
+            out[c] = "numeric"
+        elif hasattr(v, "isoformat"):
+            out[c] = "timestamp" if hasattr(v, "hour") else "date"
+        else:
+            out[c] = "text"
+    return out
+
+
 class DataSourceAdapter(ABC):
     """Interface every source must implement. Non-SQL sources implement ``execute`` natively."""
 
@@ -91,6 +111,10 @@ class DataSourceAdapter(ABC):
     def explain(self, query: str) -> str:
         return "query plans are not supported by this source"
 
+    def provenance(self) -> Dict[str, Any]:
+        """Where results come from. Snapshot-backed adapters override this with freshness details."""
+        return {"mode": "live", "source_type": self.descriptor.source_type.value}
+
     def schema_fingerprint(self) -> str:
         """Hash of collection/column structure, used to invalidate stale knowledge."""
         import hashlib
@@ -126,7 +150,8 @@ class SQLSourceAdapter(DataSourceAdapter):
             return QueryExecutionResult(
                 source_id=self.source_id, query=query, succeeded=True, columns=cols,
                 rows=[{c: jsonable(v) for c, v in zip(cols, r)} for r in rows], row_count=len(rows),
-                truncated=truncated, execution_time_ms=(time.perf_counter() - t0) * 1000)
+                truncated=truncated, execution_time_ms=(time.perf_counter() - t0) * 1000,
+                column_types=observed_types(cols, rows), provenance=self.provenance())
         except Exception as exc:  # surfaced to agents as an observation, never swallowed silently
             return QueryExecutionResult(
                 source_id=self.source_id, query=query, succeeded=False,

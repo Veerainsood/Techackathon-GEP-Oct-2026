@@ -7,9 +7,12 @@ resolved from live value searches against the source.
 
 from __future__ import annotations
 
+import asyncio
 import re
 import time
 from typing import Any, Dict, List, Optional, Sequence
+
+from udre.llm.base import LLMUnavailable
 
 from udre.agents.catalog import view_from_described
 from udre.agents.common import build_candidate, evidence_from_result, execute_with_repair
@@ -25,12 +28,50 @@ EXPLORER_WEIGHTS = PlannerWeights(name=2.0, description=0.8, collection=1.4, con
 class ExplorerAgent:
     name = "Explorer"
 
-    def __init__(self, packs: Sequence[Dict[str, Any]], max_steps: int = 14, inspect_k: int = 5):
+    def __init__(self, packs: Sequence[Dict[str, Any]], max_steps: int = 14, inspect_k: int = 5, llm=None, max_turns: int = 24):
         self.packs = packs
         self.max_steps = max_steps
         self.inspect_k = inspect_k
+        self.llm = llm  # LLMProvider or None (offline deterministic mode)
+        self.max_turns = max_turns
 
-    def run(self, question: str, session: ToolSession) -> AgentReasoningCandidate:
+    def run(self, question: str, session: ToolSession, on_event=None) -> AgentReasoningCandidate:
+        """LLM tool-calling investigation when a provider is configured; otherwise the deterministic planner."""
+        if self.llm is None:
+            return self.run_deterministic(question, session)
+        try:
+            return asyncio.run(self.arun_llm(question, session, on_event))
+        except LLMUnavailable as exc:
+            fresh = ToolSession(session.toolbox, session.ctx, session.agent, max_calls=session.max_calls)
+            cand = self.run_deterministic(question, fresh)
+            cand.reasoning_mode, cand.failure = "deterministic_fallback", f"LLM unavailable: {exc}"
+            return cand
+
+    async def arun_llm(self, question: str, session: ToolSession, on_event=None) -> AgentReasoningCandidate:
+        from udre.agents.llm_agent import TOOL_SPECS, LLMInvestigation, candidate_from_submission, serialize_result
+        from udre.agents.prompts import EXPLORER_SYSTEM, TRUST_RULES
+
+        t0 = time.perf_counter()
+        skill = session.call("load_skill", objective="load the investigation procedure", phase="INIT", skill_id="database-investigation")
+        catalog = session.call("collection_catalog", objective="lightweight catalog of authorized collections", phase="INIT")
+        knowledge = session.call("lookup_knowledge", objective="reuse verified knowledge", phase="INIT", query=question)
+        lines = [f"- {c['source_id']}:{c['collection']} | rows={c.get('rows')} | {c.get('summary', '')[:120]}"
+                 + (f" | metrics={','.join(c.get('metrics', [])[:5])}" if c.get("metrics") else "")
+                 + (f" | mode={c.get('provenance_mode')}" if c.get("provenance_mode") else "") for c in catalog]
+        user = (f"Question: {question}\n\nLightweight collection catalog (load details progressively):\n"
+                + serialize_result("collection_catalog", {"collections": "\n".join(lines)}) + "\n\nVerified knowledge:\n"
+                + serialize_result("lookup_knowledge", knowledge)
+                + "\n\nInvestigate with tools, keep explicit state, and submit a grounded candidate.")
+        system = EXPLORER_SYSTEM.format(skill=skill["instructions"], trust=TRUST_RULES)
+        loop = LLMInvestigation(self.llm, self.name, system, session, max_turns=self.max_turns, on_event=on_event)
+        sub, final = await loop.run(user, list(TOOL_SPECS))
+        sid = sub.source_id if sub else ""
+        colls = session.toolbox.gateway.collections(session.ctx, sid) if sid else []
+        dialect = session.toolbox.gateway.adapter(session.ctx, sid).dialect if sid else None
+        return candidate_from_submission(self.name, question, sub, final, session, loop.usage,
+                                         (time.perf_counter() - t0) * 1000, colls, dialect)
+
+    def run_deterministic(self, question: str, session: ToolSession) -> AgentReasoningCandidate:
         t0 = time.perf_counter()
         st = ExplorerInvestigationState(user_requirements=[question])
         evidence = []

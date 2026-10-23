@@ -64,7 +64,7 @@ def main() -> int:
     (ROOT / "sql" / "postgres_ddl.sql").write_text(generate_postgresql_ddl(), encoding="utf-8")
     (ROOT / "docs" / "SCHEMA_MAPPING.md").write_text(generate_schema_mapping_markdown(), encoding="utf-8")
     bench = build_benchmark(gen)
-    for split in ("dev", "heldout", "heldout2"):
+    for split in ("dev", "heldout", "heldout2", "heldout3"):
         subset = [q for q in bench if q["split"] == split]
         (ROOT / "benchmark" / f"{split}.json").write_text(json.dumps(subset, indent=2, default=str), encoding="utf-8")
     if not args.skip_files:

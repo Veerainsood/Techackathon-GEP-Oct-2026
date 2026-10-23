@@ -306,4 +306,72 @@ def build_benchmark(gen: SyntheticFinanceGenerator) -> List[Dict[str, Any]]:
         """SELECT SUM(l.line_net_amount_usd) FROM ledger_erp.sales_invoice_items l JOIN ledger_erp.catalog_offerings c
            ON c.catalog_item_id = l.catalog_item_id WHERE c.offering_name = 'Managed Cloud Hosting'""",
         "cross_domain", tables=["ledger_erp.sales_invoice_items", "ledger_erp.catalog_offerings"], values=["Managed Cloud Hosting"])
+
+    # ---------------- held-out v3: written before the Phase-2 reliability changes, scored exactly once
+    add("T01", "heldout3", "How many deal opportunities have forecast category BEST_CASE?",
+        sum(1 for d in deals if d["forecast_cat_code"] == "BEST_CASE"),
+        "SELECT COUNT(*) FROM pipeline_crm.deal_opportunities WHERE forecast_cat_code = 'BEST_CASE'", "crm",
+        tables=["pipeline_crm.deal_opportunities"], values=["BEST_CASE"])
+    add("T02", "heldout3", "What is the total subtotal amount in USD of invoices with doc currency GBP in fiscal period 2025-11?",
+        amt(sum(i.subtotal_usd for i in inv if i.currency == "GBP" and period_of(i.invoice_date) == "2025-11")),
+        "SELECT SUM(subtotal_amount_usd) FROM ledger_erp.sales_invoices WHERE doc_currency = 'GBP' AND fiscal_period = '2025-11'",
+        "fx", tables=["ledger_erp.sales_invoices"], values=["GBP", "2025-11"])
+    pp = [i.open_usd for i in inv if i.status == "PARTIALLY_PAID"]
+    add("T03", "heldout3", "What is the average open balance in USD of invoices with settlement status PARTIALLY_PAID?",
+        round(sum(pp) / len(pp) / 100, 4),
+        "SELECT AVG(open_balance_usd) FROM ledger_erp.sales_invoices WHERE settlement_status = 'PARTIALLY_PAID'", "ar",
+        tables=["ledger_erp.sales_invoices"], values=["PARTIALLY_PAID"])
+    add("T04", "heldout3", "How many receivable debtors have account status ON_HOLD?",
+        sum(1 for d in R["ledger_erp.receivable_debtors"] if d["account_status"] == "ON_HOLD"),
+        "SELECT COUNT(*) FROM ledger_erp.receivable_debtors WHERE account_status = 'ON_HOLD'", "identity",
+        tables=["ledger_erp.receivable_debtors"], values=["ON_HOLD"])
+    fam: Dict[str, int] = defaultdict(int)
+    for s in R["pipeline_crm.deal_product_splits"]:
+        fam[s["crm_product_family"]] += int(round(s["split_arr_usd"] * 100))
+    add("T05", "heldout3", "What is the total split ARR in USD by CRM product family?", {k: amt(v) for k, v in sorted(fam.items())},
+        "SELECT crm_product_family, SUM(split_arr_usd) FROM pipeline_crm.deal_product_splits GROUP BY crm_product_family", "crm",
+        answer_type="grouped", tables=["pipeline_crm.deal_product_splits"])
+    rg: Dict[str, int] = defaultdict(int)
+    for r in R["exec_reporting.monthly_revenue_posture"]:
+        if r["snapshot_period"] == "2025-03":
+            rg[nodes[r["region_node_id"]]] += int(round(r["recognized_gl_revenue_usd"] * 100))
+    add("T06", "heldout3", "What is the total recognized GL revenue in USD by region for snapshot period 2025-03?",
+        {k: amt(v) for k, v in sorted(rg.items())},
+        """SELECT n.canonical_label, SUM(m.recognized_gl_revenue_usd) FROM exec_reporting.monthly_revenue_posture m
+           JOIN master_ref.taxonomy_nodes n ON n.node_id = m.region_node_id WHERE m.snapshot_period = '2025-03'
+           GROUP BY n.canonical_label""",
+        "reconciliation", answer_type="grouped", tables=["exec_reporting.monthly_revenue_posture"], values=["2025-03"])
+    add("T07", "heldout3", "How many journal vouchers have posting status REVERSED?",
+        sum(1 for v in R["ledger_erp.journal_vouchers"] if v["posting_status"] == "REVERSED"),
+        "SELECT COUNT(*) FROM ledger_erp.journal_vouchers WHERE posting_status = 'REVERSED'", "gl",
+        tables=["ledger_erp.journal_vouchers"], values=["REVERSED"])
+    add("T08", "heldout3", "What is the total locked contracted revenue in USD for as of period 2025-06?",
+        amt(sum(int(round(r["locked_contracted_rev_usd"] * 100)) for r in R["exec_reporting.horizon_revenue_outlook"]
+                if r["as_of_period"] == "2025-06")),
+        "SELECT SUM(locked_contracted_rev_usd) FROM exec_reporting.horizon_revenue_outlook WHERE as_of_period = '2025-06'",
+        "reporting", tables=["exec_reporting.horizon_revenue_outlook"], values=["2025-06"])
+    posted_credits = -sum(p["_cents"] for p in R["ledger_erp.journal_postings"]
+                          if p["_status"] == "POSTED" and p["_period"] == "2024-12" and p["_cents"] < 0)
+    add("T09", "heldout3", "What is the total credit amount in USD of journal postings for POSTED vouchers in fiscal period 2024-12?",
+        amt(posted_credits),
+        """SELECT SUM(p.credit_amount_usd) FROM ledger_erp.journal_postings p JOIN ledger_erp.journal_vouchers v
+           ON v.voucher_id = p.voucher_id WHERE v.posting_status = 'POSTED' AND v.fiscal_period = '2024-12'""",
+        "reconciliation", tables=["ledger_erp.journal_postings", "ledger_erp.journal_vouchers"], values=["POSTED", "2024-12"])
+    ent_names = {e["legal_entity_code"]: e["legal_entity_name"] for e in R["master_ref.entity_jurisdictions"]}
+    ob: Dict[str, int] = defaultdict(int)
+    for i in inv:
+        ob[ent_names[i.entity]] += i.open_usd
+    add("T10", "heldout3", "What are the top 3 entity jurisdictions by total open balance in USD of invoices?",
+        {k: amt(v) for k, v in sorted(ob.items(), key=lambda kv: -kv[1])[:3]},
+        """SELECT e.legal_entity_name, SUM(i.open_balance_usd) s FROM ledger_erp.sales_invoices i
+           JOIN master_ref.entity_jurisdictions e ON e.legal_entity_code = i.legal_entity_code
+           GROUP BY e.legal_entity_name ORDER BY s DESC LIMIT 3""",
+        "cross_domain", answer_type="grouped", tables=["ledger_erp.sales_invoices", "master_ref.entity_jurisdictions"])
+    add("T11", "heldout3", "Which customers are the biggest?", None, "-- ambiguous: biggest by what measure and period",
+        "ambiguity", behavior="flag_ambiguity")
+    add("T12", "heldout3", "How many ingestion batches have run status PARTIAL_WARNING for upstream connector CRM_PIPELINEHUB?",
+        sum(1 for b in R["data_ops.ingestion_batches"] if b["run_status"] == "PARTIAL_WARNING"
+            and b["upstream_connector"] == "CRM_PIPELINEHUB"),
+        "SELECT COUNT(*) FROM data_ops.ingestion_batches WHERE run_status = 'PARTIAL_WARNING' AND upstream_connector = 'CRM_PIPELINEHUB'",
+        "ops", tables=["data_ops.ingestion_batches"], values=["PARTIAL_WARNING", "CRM_PIPELINEHUB"])
     return q

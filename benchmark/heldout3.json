@@ -1,0 +1,216 @@
+[
+  {
+    "id": "T01",
+    "split": "heldout3",
+    "question": "How many deal opportunities have forecast category BEST_CASE?",
+    "expected": 19,
+    "verification_sql": "SELECT COUNT(*) FROM pipeline_crm.deal_opportunities WHERE forecast_cat_code = 'BEST_CASE'",
+    "category": "crm",
+    "answer_type": "scalar",
+    "expected_tables": [
+      "pipeline_crm.deal_opportunities"
+    ],
+    "expected_values": [
+      "BEST_CASE"
+    ],
+    "behavior": "answer",
+    "sign_insensitive": false
+  },
+  {
+    "id": "T02",
+    "split": "heldout3",
+    "question": "What is the total subtotal amount in USD of invoices with doc currency GBP in fiscal period 2025-11?",
+    "expected": 125101.38,
+    "verification_sql": "SELECT SUM(subtotal_amount_usd) FROM ledger_erp.sales_invoices WHERE doc_currency = 'GBP' AND fiscal_period = '2025-11'",
+    "category": "fx",
+    "answer_type": "scalar",
+    "expected_tables": [
+      "ledger_erp.sales_invoices"
+    ],
+    "expected_values": [
+      "GBP",
+      "2025-11"
+    ],
+    "behavior": "answer",
+    "sign_insensitive": false
+  },
+  {
+    "id": "T03",
+    "split": "heldout3",
+    "question": "What is the average open balance in USD of invoices with settlement status PARTIALLY_PAID?",
+    "expected": 14235.7198,
+    "verification_sql": "SELECT AVG(open_balance_usd) FROM ledger_erp.sales_invoices WHERE settlement_status = 'PARTIALLY_PAID'",
+    "category": "ar",
+    "answer_type": "scalar",
+    "expected_tables": [
+      "ledger_erp.sales_invoices"
+    ],
+    "expected_values": [
+      "PARTIALLY_PAID"
+    ],
+    "behavior": "answer",
+    "sign_insensitive": false
+  },
+  {
+    "id": "T04",
+    "split": "heldout3",
+    "question": "How many receivable debtors have account status ON_HOLD?",
+    "expected": 1,
+    "verification_sql": "SELECT COUNT(*) FROM ledger_erp.receivable_debtors WHERE account_status = 'ON_HOLD'",
+    "category": "identity",
+    "answer_type": "scalar",
+    "expected_tables": [
+      "ledger_erp.receivable_debtors"
+    ],
+    "expected_values": [
+      "ON_HOLD"
+    ],
+    "behavior": "answer",
+    "sign_insensitive": false
+  },
+  {
+    "id": "T05",
+    "split": "heldout3",
+    "question": "What is the total split ARR in USD by CRM product family?",
+    "expected": {
+      "Analytics": 13877329.8,
+      "Cloud": 15016663.99,
+      "Professional Services": 9165234.99,
+      "Security": 8953571.22
+    },
+    "verification_sql": "SELECT crm_product_family, SUM(split_arr_usd) FROM pipeline_crm.deal_product_splits GROUP BY crm_product_family",
+    "category": "crm",
+    "answer_type": "grouped",
+    "expected_tables": [
+      "pipeline_crm.deal_product_splits"
+    ],
+    "expected_values": [],
+    "behavior": "answer",
+    "sign_insensitive": false
+  },
+  {
+    "id": "T06",
+    "split": "heldout3",
+    "question": "What is the total recognized GL revenue in USD by region for snapshot period 2025-03?",
+    "expected": {
+      "Americas": 720464.9,
+      "Asia Pacific": 97508.8,
+      "Europe, Middle East & Africa": 201817.37
+    },
+    "verification_sql": "SELECT n.canonical_label, SUM(m.recognized_gl_revenue_usd) FROM exec_reporting.monthly_revenue_posture m JOIN master_ref.taxonomy_nodes n ON n.node_id = m.region_node_id WHERE m.snapshot_period = '2025-03' GROUP BY n.canonical_label",
+    "category": "reconciliation",
+    "answer_type": "grouped",
+    "expected_tables": [
+      "exec_reporting.monthly_revenue_posture"
+    ],
+    "expected_values": [
+      "2025-03"
+    ],
+    "behavior": "answer",
+    "sign_insensitive": false
+  },
+  {
+    "id": "T07",
+    "split": "heldout3",
+    "question": "How many journal vouchers have posting status REVERSED?",
+    "expected": 2,
+    "verification_sql": "SELECT COUNT(*) FROM ledger_erp.journal_vouchers WHERE posting_status = 'REVERSED'",
+    "category": "gl",
+    "answer_type": "scalar",
+    "expected_tables": [
+      "ledger_erp.journal_vouchers"
+    ],
+    "expected_values": [
+      "REVERSED"
+    ],
+    "behavior": "answer",
+    "sign_insensitive": false
+  },
+  {
+    "id": "T08",
+    "split": "heldout3",
+    "question": "What is the total locked contracted revenue in USD for as of period 2025-06?",
+    "expected": 6818274.96,
+    "verification_sql": "SELECT SUM(locked_contracted_rev_usd) FROM exec_reporting.horizon_revenue_outlook WHERE as_of_period = '2025-06'",
+    "category": "reporting",
+    "answer_type": "scalar",
+    "expected_tables": [
+      "exec_reporting.horizon_revenue_outlook"
+    ],
+    "expected_values": [
+      "2025-06"
+    ],
+    "behavior": "answer",
+    "sign_insensitive": false
+  },
+  {
+    "id": "T09",
+    "split": "heldout3",
+    "question": "What is the total credit amount in USD of journal postings for POSTED vouchers in fiscal period 2024-12?",
+    "expected": 4758617.77,
+    "verification_sql": "SELECT SUM(p.credit_amount_usd) FROM ledger_erp.journal_postings p JOIN ledger_erp.journal_vouchers v ON v.voucher_id = p.voucher_id WHERE v.posting_status = 'POSTED' AND v.fiscal_period = '2024-12'",
+    "category": "reconciliation",
+    "answer_type": "scalar",
+    "expected_tables": [
+      "ledger_erp.journal_postings",
+      "ledger_erp.journal_vouchers"
+    ],
+    "expected_values": [
+      "POSTED",
+      "2024-12"
+    ],
+    "behavior": "answer",
+    "sign_insensitive": false
+  },
+  {
+    "id": "T10",
+    "split": "heldout3",
+    "question": "What are the top 3 entity jurisdictions by total open balance in USD of invoices?",
+    "expected": {
+      "Aethelgard Systems Inc.": 2486808.98,
+      "Aethelgard Asia Pte. Ltd.": 324767.15,
+      "Aethelgard Digital GmbH": 280410.25
+    },
+    "verification_sql": "SELECT e.legal_entity_name, SUM(i.open_balance_usd) s FROM ledger_erp.sales_invoices i JOIN master_ref.entity_jurisdictions e ON e.legal_entity_code = i.legal_entity_code GROUP BY e.legal_entity_name ORDER BY s DESC LIMIT 3",
+    "category": "cross_domain",
+    "answer_type": "grouped",
+    "expected_tables": [
+      "ledger_erp.sales_invoices",
+      "master_ref.entity_jurisdictions"
+    ],
+    "expected_values": [],
+    "behavior": "answer",
+    "sign_insensitive": false
+  },
+  {
+    "id": "T11",
+    "split": "heldout3",
+    "question": "Which customers are the biggest?",
+    "expected": null,
+    "verification_sql": "-- ambiguous: biggest by what measure and period",
+    "category": "ambiguity",
+    "answer_type": "scalar",
+    "expected_tables": [],
+    "expected_values": [],
+    "behavior": "flag_ambiguity",
+    "sign_insensitive": false
+  },
+  {
+    "id": "T12",
+    "split": "heldout3",
+    "question": "How many ingestion batches have run status PARTIAL_WARNING for upstream connector CRM_PIPELINEHUB?",
+    "expected": 3,
+    "verification_sql": "SELECT COUNT(*) FROM data_ops.ingestion_batches WHERE run_status = 'PARTIAL_WARNING' AND upstream_connector = 'CRM_PIPELINEHUB'",
+    "category": "ops",
+    "answer_type": "scalar",
+    "expected_tables": [
+      "data_ops.ingestion_batches"
+    ],
+    "expected_values": [
+      "PARTIAL_WARNING",
+      "CRM_PIPELINEHUB"
+    ],
+    "behavior": "answer",
+    "sign_insensitive": false
+  }
+]

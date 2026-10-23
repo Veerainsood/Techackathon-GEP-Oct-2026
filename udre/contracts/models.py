@@ -99,6 +99,7 @@ class CollectionSchema(BaseModel):
     description: str = ""
     primary_keys: List[str] = Field(default_factory=list)
     foreign_keys: List[Dict[str, str]] = Field(default_factory=list)
+    indexes: List[str] = Field(default_factory=list)
 
 
 class ColumnProfile(BaseModel):
@@ -140,6 +141,8 @@ class QueryExecutionResult(BaseModel):
     execution_time_ms: float = 0.0
     error_message: Optional[str] = None
     query_plan: Optional[str] = None
+    column_types: Dict[str, str] = Field(default_factory=dict)
+    provenance: Dict[str, Any] = Field(default_factory=dict)  # {"mode": "live"|"snapshot", "synced_at": ..., ...}
 
 
 class EvidenceReference(BaseModel):
@@ -272,6 +275,10 @@ class AgentReasoningCandidate(BaseModel):
     tokens_used: int = 0
     latency_ms: float = 0.0
     investigation_trace: Optional[ExplorerInvestigationState] = None
+    reasoning_mode: str = "deterministic_offline"  # llm | deterministic_offline | deterministic_fallback
+    llm_usage: Dict[str, Any] = Field(default_factory=dict)
+    result_provenance: Dict[str, Any] = Field(default_factory=dict)
+    failure: Optional[str] = None
 
 
 class AdjudicationDecision(BaseModel):
