@@ -26,6 +26,7 @@ from udre.agents.planner import QueryPlan, compile_sql, describe_answer, parse_q
 from udre.contracts.models import AdjudicationDecision, AgentReasoningCandidate, ValidationFinding, VerificationStatus
 from udre.gateway.registry import AccessContext
 from udre.skills.tools import ToolBox, ToolSession
+from udre.verification.validators import candidate_completeness
 
 
 class UDREState(TypedDict, total=False):
@@ -194,6 +195,7 @@ class DualPathWorkflow:
                 continue
             result = self.e.gateway.execute_query(ctx, plan.source_id, cand.query_or_plan)
             fs = self.e.verifier.verify(ctx, state["question"], plan, cand.query_or_plan, result, view)
+            fs.append(candidate_completeness(cand))
             findings[name] = [f.model_dump(mode="json") for f in fs]
         summary = {n: {"errors": sum(1 for f in fs if not f["passed"] and f["severity"] == "error"),
                        "warnings": sum(1 for f in fs if f["severity"] == "warning")} for n, fs in findings.items()}

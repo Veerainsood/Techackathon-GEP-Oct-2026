@@ -25,9 +25,17 @@ from udre.gateway.registry import AccessContext, SourceGateway
 from udre.skills.tools import ToolBox
 
 
+COVERAGE_WEIGHT = 4.0  # a 0.5 coverage gap equals the decision margin (2.0)
+
+
 def evidence_score(findings: Sequence[ValidationFinding], candidate: AgentReasoningCandidate) -> Tuple[float, List[str]]:
     score, notes = 0.0, []
     for f in list(findings) + list(candidate.verification_results):
+        if f.validator_name == "question_coverage":
+            ratio = float(f.details.get("ratio", 1.0))
+            score += COVERAGE_WEIGHT * ratio
+            notes.append(f"+{COVERAGE_WEIGHT * ratio:.1f} question coverage {ratio:.0%} (unexplained {f.details.get('uncovered')})")
+            continue
         if not f.passed and f.severity == "error":
             score -= 3.0
             notes.append(f"-3 {f.validator_name}: {f.message}")
@@ -150,16 +158,45 @@ class Adjudicator:
             return self._decide(question, cands[winner], "Reconciled_Consensus", status, analysis, None, findings.get(winner, []), all_findings,
                                 evidence, lineage, max(s[0] for s in scores.values()), ambiguous, total_tokens, latency)
         checks = self.discriminating_checks(ctx, pa, pb)
+        for n in names:
+            cov = next((f for f in findings.get(n, []) if f.validator_name == "question_coverage"), None)
+            if cov is not None:
+                checks.append({"purpose": f"question terms the {n} plan does not explain", "sql": "-- deterministic term coverage",
+                               "rows": [{"ratio": cov.details.get("ratio"), "unexplained": cov.details.get("uncovered")}], "ok": True})
         analysis = ("results differ: " + f"Explorer={_short(a.structured_value)} vs Hercules={_short(b.structured_value)}; "
                     + "; ".join(diffs) + " | evidence scores: "
                     + ", ".join(f"{n}={scores[n][0]:.1f}" for n in names))
         sa, sb = scores["Explorer"][0], scores["Hercules"][0]
+        unbound = self._unbound_terms_winner(findings)
+        if unbound:
+            winner, reason = unbound
+            return self._decide(question, cands[winner], winner, "disagreement_resolved", analysis + " | " + reason, checks,
+                                findings.get(winner, []), all_findings, evidence, lineage, max(sa, sb), ambiguous, total_tokens,
+                                latency, loser_notes=scores["Hercules" if winner == "Explorer" else "Explorer"][1])
         if abs(sa - sb) >= self.margin:
             winner = "Explorer" if sa > sb else "Hercules"
             return self._decide(question, cands[winner], winner, "disagreement_resolved", analysis, checks, findings.get(winner, []),
                                 all_findings, evidence, lineage, max(sa, sb), ambiguous, total_tokens, latency,
                                 loser_notes=scores["Hercules" if winner == "Explorer" else "Explorer"][1])
         return self._abstain(question, a, b, analysis, checks, all_findings, evidence, lineage, total_tokens, latency)
+
+    @staticmethod
+    def _unbound_terms_winner(findings: Dict[str, List[ValidationFinding]]) -> Optional[Tuple[str, str]]:
+        """Prefer the candidate whose executed plan physically binds question terms the other plan ignores.
+
+        Applies only when the other candidate leaves >= 2 terms unbound, the preferred one leaves none of
+        those unbound and introduces no unbound terms of its own, and the preferred one has no blocking errors.
+        """
+        cov = {n: next((f for f in fs if f.validator_name == "question_coverage"), None) for n, fs in findings.items()}
+        if len(cov) != 2 or any(c is None for c in cov.values()):
+            return None
+        (n1, c1), (n2, c2) = cov.items()
+        u1, u2 = set(c1.details.get("uncovered_physical", [])), set(c2.details.get("uncovered_physical", []))
+        for win, lose, uw, ul in ((n1, n2, u1, u2), (n2, n1, u2, u1)):
+            blocking = [f for f in findings[win] if not f.passed and f.severity == "error"]
+            if len(ul - uw) >= 2 and not (uw - ul) and not blocking:
+                return win, f"{lose}'s executed plan does not bind question terms {sorted(ul - uw)} that {win}'s plan binds"
+        return None
 
     # ------------------------------------------------------------------ decisions
     def _decide(self, question, cand, path, status, analysis, checks, winner_findings, findings, evidence, lineage, score,

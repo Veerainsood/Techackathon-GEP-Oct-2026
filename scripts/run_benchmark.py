@@ -26,15 +26,17 @@ def load(split: str):
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--split", default="heldout", choices=["heldout", "heldout2", "dev", "all"])
+    ap.add_argument("--split", default="heldout", choices=["heldout", "heldout2", "heldout3", "dev", "all", "seen"])
     ap.add_argument("--out", default="results")
     args = ap.parse_args()
     engine = build_engine()
     ctx = engine.default_ctx
     for sid in [s.source_id for s in engine.gateway.sources(ctx)]:
         engine.builder.build(ctx, sid)
-    splits = ["dev", "heldout", "heldout2"] if args.split == "all" else [args.split]
-    report = {"generated_at": time.strftime("%Y-%m-%d %H:%M:%S"), "splits": {}}
+    splits = {"all": ["dev", "heldout", "heldout2", "heldout3"], "seen": ["dev", "heldout", "heldout2"]}.get(args.split, [args.split])
+    report = {"generated_at": time.strftime("%Y-%m-%d %H:%M:%S"), "splits": {},
+              "reasoning_mode": {"explorer": "llm" if engine.explorer.llm else "deterministic_offline",
+                                 "hercules": "llm" if engine.hercules.llm else "deterministic_offline"}}
     for split in splits:
         qs = load(split)
         res = {}
@@ -66,10 +68,14 @@ def render_md(report) -> str:
     keys = ["answer_accuracy", "schema_linking_accuracy", "value_linking_accuracy", "reconciliation_accuracy",
             "wrong_but_confident_rate", "abstention_on_ambiguous", "unnecessary_abstention_rate", "avg_tool_calls",
             "avg_context_tokens", "latency_p50_ms", "latency_p95_ms", "followups"]
+    mode = report.get("reasoning_mode", {})
+    offline = all(v != "llm" for v in mode.values()) if mode else True
     out = [f"# Benchmark results ({report['generated_at']})", "",
            "Expected answers are computed independently from the generator's event model. "
-           "No LLM was configured for this run: both agents used the deterministic planner, so 'context tokens' counts "
-           "tokens of context and tool observations processed, not model tokens.", ""]
+           f"Reasoning mode: {mode or 'deterministic_offline'}. "
+           + ("No LLM was configured: both agents used the deterministic planner, so 'context tokens' counts tokens of "
+              "context and tool observations processed, not model tokens." if offline else
+              "Token counts include model input/output tokens reported by the provider."), ""]
     for split, res in report["splits"].items():
         out += [f"## {split} split", "", "| metric | " + " | ".join(res) + " |", "|---|" + "---|" * len(res)]
         for k in keys:

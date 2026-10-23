@@ -4,7 +4,7 @@ check queries so that the finding carries observable evidence rather than an opi
 from __future__ import annotations
 
 import re
-from typing import Any, Dict, List, Optional, Sequence
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from udre.agents.planner import CatalogView, FilterSpec, QueryPlan, _lit, parse_question
 from udre.contracts.models import EdgeType, QueryExecutionResult, ValidationFinding
@@ -66,7 +66,8 @@ class Verifier:
         if plan is None or view is None:
             return findings
         for check in (self.join_multiplicity, self.null_handling, self.currency_units, self.date_period,
-                      self.filter_grounding, self.nullifying_status, self.reconciliation, self.balance_invariant):
+                      self.filter_grounding, self.nullifying_status, self.reconciliation, self.balance_invariant,
+                      self.question_coverage):
             try:
                 findings += check(ctx, question, plan, view, result)
             except Exception as exc:  # a broken check is reported, never silently skipped
@@ -268,6 +269,69 @@ class Verifier:
         ok = abs(float(d) - float(c)) < 0.01
         return [_f("balance_invariant", ok, "info" if ok else "warning",
                    f"debits {d} {'=' if ok else '!='} credits {c} within the filtered scope", evidence=ev)]
+
+    def question_coverage(self, ctx, question, plan, view, result) -> List[ValidationFinding]:
+        return _question_coverage(self, ctx, question, plan, view, result)
+
+
+def _stem(t: str) -> str:
+    return t[:-1] if len(t) > 3 and t.endswith("s") else t
+
+
+def coverage_terms(question: str) -> set:
+    return {_stem(t) for t in parse_question(question).content}
+
+
+def plan_vocabulary(plan: QueryPlan, view: CatalogView) -> Tuple[set, set]:
+    """(physical, descriptive) words the executed plan accounts for.
+
+    physical: names of the collections/columns it binds and the filter values it applies.
+    descriptive: those columns' descriptions and concept synonyms (documentation, weaker evidence).
+    """
+    physical: List[str] = []
+    descriptive: List[str] = []
+    colls = {plan.primary_collection} | {j.right for j in plan.joins} | {g[0] for g in plan.group_by} | {f.collection for f in plan.filters}
+    for c in colls:
+        physical += tokens(c.split(".")[-1])
+    bound = ([plan.measure] if plan.measure else []) + [tuple(g) for g in plan.group_by] + [(f.collection, f.column) for f in plan.filters]
+    for coll, col in bound:
+        physical += tokens(col)
+        info = view.columns.get((coll, col))
+        if info:
+            descriptive += tokens(info.description)
+            for concept in info.concepts:
+                descriptive += [w for s in view.concept_synonyms.get(concept, []) for w in tokens(s)]
+    for f in plan.filters:
+        physical += tokens(str(f.value)) + tokens(f.matched_text or "")
+    return {_stem(w) for w in physical}, {_stem(w) for w in descriptive}
+
+
+def _question_coverage(self, ctx, question, plan, view, result) -> List[ValidationFinding]:
+    terms = coverage_terms(question)
+    if not terms:
+        return [_f("question_coverage", True, "info", "no informative question terms", ratio=1.0, uncovered=[], uncovered_physical=[])]
+    physical, descriptive = plan_vocabulary(plan, view)
+    uncovered_physical = sorted(t for t in terms if t not in physical)
+    uncovered = sorted(t for t in uncovered_physical if t not in descriptive)
+    ratio = round((len(terms) - len(uncovered_physical) + 0.5 * (len(uncovered_physical) - len(uncovered))) / len(terms), 3)
+    sev = "warning" if ratio < 0.5 else "info"
+    msg = f"plan accounts for {ratio:.0%} of informative question terms"
+    if uncovered_physical:
+        msg += f"; not bound by any executed column/value: {uncovered_physical}"
+    return [_f("question_coverage", ratio >= 0.5, sev, msg, ratio=ratio, uncovered=uncovered, uncovered_physical=uncovered_physical)]
+
+
+
+def candidate_completeness(cand) -> ValidationFinding:
+    """Every candidate must carry a plan, executed query, real result, interpretation, lineage and evidence."""
+    parts = {"executed_query": bool(cand.query_or_plan), "source_lineage": bool(cand.source_id),
+             "result_rows": bool(cand.observed_results) or cand.structured_value is not None,
+             "plan": bool((cand.resolved_entities_and_metrics or {}).get("plan", {}).get("primary_collection")),
+             "interpretation": bool(cand.interpreted_question), "evidence": bool(cand.evidence_references)}
+    missing = [k for k, ok in parts.items() if not ok]
+    blocking = {"executed_query", "source_lineage", "result_rows"} & set(missing)
+    return _f("candidate_completeness", not missing, "error" if blocking else ("warning" if missing else "info"),
+              "candidate is complete" if not missing else f"candidate missing: {missing}", missing=missing)
 
 
 def summarize(findings: Sequence[ValidationFinding]) -> Dict[str, int]:

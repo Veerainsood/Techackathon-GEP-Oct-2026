@@ -36,6 +36,10 @@ TOPN_RE = re.compile(r"\btop\s+(\d+)\b|\b(?:largest|biggest|highest)\s+(\d+)\b",
 GROUP_RE = re.compile(r"\b(?:by|per|for each|broken down by)\s+([a-z][a-z _-]*?)(?=\s+(?:for|in|with|excluding|where|during|from|and|over|across)\b|[,?.]|$)", re.I)
 EXCLUDE_RE = re.compile(r"\b(?:excluding|except|other than|not including)\s+(?:the\s+)?([A-Za-z0-9_ -]+?)(?=\s+(?:invoices?|rows?|records?|items?|entries|ones)\b|[,?.]|$)", re.I)
 NULL_RE = re.compile(r"\b(?:no|without|missing|lacking|unmapped)\s+(?:a\s+|an\s+|any\s+)?([a-z_ ]+?)\s*(?:mapping|link|assignment|match|reference)\b|\bunmapped\s+([a-z_]+)", re.I)
+AGENT_VERBS = {"issued", "owned", "created", "billed", "managed", "assigned", "sold", "reported", "approved", "signed",
+               "made", "generated", "booked", "placed", "raised", "submitted", "handled", "processed", "invoiced", "paid"}
+TIME_PHRASE_RE = re.compile(r"\b(?:for|in|during|of)\s+((?:[a-z]+\s+){0,3}?)(?:period|date|month)\s+(?:(?:19|20)\d{2}|"
+                            + "|".join(MONTHS) + r")")
 ISO_CCY = {"USD", "EUR", "GBP", "JPY", "SGD", "CAD", "AUD", "CHF", "INR", "CNY", "HKD", "SEK", "NOK", "DKK"}
 
 
@@ -160,14 +164,21 @@ def parse_question(q: str) -> QuestionFrame:
     excl = [] if nulls else [e.strip() for e in EXCLUDE_RE.findall(text)]
     group = None
     if agg != "TOP":
-        g = GROUP_RE.search(low)
-        group = g.group(1).strip() if g else None
+        for g in GROUP_RE.finditer(low):
+            before = low[: g.start()].split()
+            if before and before[-1] in AGENT_VERBS:
+                continue  # "issued by X" names who acted, it is not a grouping request
+            group = g.group(1).strip()
+            break
     entity = None
     if agg == "TOP":
         m = re.search(r"\btop\s+\d+\s+([a-z][a-z _-]*?)(?=\s+(?:by|with|for|in|based)\b|[?.]|$)", low)
         entity = m.group(1).strip() if m else None
     code_literals = re.findall(r"\b[A-Za-z0-9]+(?:_[A-Za-z0-9]+)+\b", text)
     no_codes = re.sub(r"\b[A-Za-z0-9]+(?:_[A-Za-z0-9]+)+\b", " ", text).lower()
+    time_phrase = TIME_PHRASE_RE.search(no_codes)
+    if time_phrase:  # words naming the time column ("snapshot period 2025-12") must not steer measure choice
+        no_codes = no_codes[: time_phrase.start(1)] + " " + no_codes[time_phrase.end(1):]
     content = [t for t in tokens(no_codes) if t not in STOP and not t.isdigit()]
     if not content and code_literals:
         content = [t for t in tokens(low) if t not in STOP and not t.isdigit()]
@@ -325,10 +336,11 @@ class SemanticPlanner:
             col = self.v.columns.get((m["collection_name"], m["column_name"]))
             if col and m["collection_name"] in scope:
                 values.append((col, m["matched_value"]))
+        grouping = {normalize_text(p) for p in (frame.group_phrase, frame.entity_phrase) if p}
         for col, val in values:
             nv = normalize_text(val)
-            if not nv or nv.isdigit():
-                continue
+            if not nv or nv.isdigit() or nv in grouping:
+                continue  # a phrase used for grouping is not also a filter value
             vt = tokens(str(val))
             for raw, ng in grams:
                 if ng != nv:
