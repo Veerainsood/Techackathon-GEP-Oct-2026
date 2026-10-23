@@ -329,7 +329,7 @@ def runtime_sources(ctx: AccessContext = Depends(access)) -> List[Dict[str, Any]
         cur = e.contexts.current(ctx.tenant_id, s.source_id) if e.contexts else None
         v = versions.get(s.source_id, {})
         prov = adapter.provenance()
-        out.append({"source_id": s.source_id, "name": s.name, "type": s.source_type.value, "mode": prov.get("mode"),
+        out.append({"source_id": s.source_id, "name": s.name, "description": s.description, "type": s.source_type.value, "mode": prov.get("mode"),
                     "snapshot_synced_at": prov.get("synced_at"), "collections": len(e.gateway.collections(ctx, s.source_id)),
                     "data_version": v.get("data_version"), "sequence": v.get("sequence"), "sync_status": v.get("sync_status", "no events yet"),
                     "last_sync_at": v.get("last_sync_at"), "last_window_end": v.get("last_window_end"), "last_error": v.get("last_error"),
@@ -444,3 +444,67 @@ def download(filename: str) -> FileResponse:
     if not path.exists():
         raise HTTPException(404, "not found")
     return FileResponse(path)
+
+
+# ============================================================================ governance: guardrails and approvals
+class GuardrailUpdate(BaseModel):
+    mode: str = Field(pattern="^(auto|approve|never)$")
+
+
+class ApprovalCreate(BaseModel):
+    approval_id: str = Field(min_length=1, max_length=100)
+    action: Dict[str, Any] = Field(description="The action as the UI shows it; its id must equal approval_id")
+
+
+class ApprovalDecision(BaseModel):
+    approved: bool
+    note: Optional[str] = Field(None, max_length=500)
+
+
+@app.get("/guardrails")
+def guardrails(ctx: AccessContext = Depends(access)) -> List[Dict[str, Any]]:
+    store = engine().governance
+    store.ensure_guardrails(ctx.tenant_id)
+    return store.list_guardrails(ctx.tenant_id)
+
+
+@app.put("/guardrails/{rule_id}")
+def set_guardrail(rule_id: str, body: GuardrailUpdate, ctx: AccessContext = Depends(access)) -> Dict[str, Any]:
+    from udre.governance.store import GuardrailLocked
+    store = engine().governance
+    store.ensure_guardrails(ctx.tenant_id)
+    try:
+        return store.set_mode(ctx.tenant_id, rule_id, body.mode, ctx.user_id)
+    except KeyError:
+        raise HTTPException(404, f"unknown guardrail {rule_id}")
+    except GuardrailLocked as exc:
+        raise HTTPException(403, str(exc))
+
+
+@app.get("/approvals")
+def approvals(status: str = "pending", ctx: AccessContext = Depends(access)) -> List[Dict[str, Any]]:
+    if status not in ("pending", "approved", "rejected", "all"):
+        raise HTTPException(400, "status must be pending, approved, rejected or all")
+    return engine().governance.list_approvals(ctx.tenant_id, status)
+
+
+@app.post("/approvals", status_code=201)
+def create_approval(body: ApprovalCreate, ctx: AccessContext = Depends(access)) -> Dict[str, Any]:
+    from udre.governance.store import ApprovalConflict
+    if body.action.get("id") != body.approval_id:
+        raise HTTPException(400, "action.id must equal approval_id")
+    try:
+        return engine().governance.create_approval(ctx.tenant_id, body.approval_id, body.action)
+    except ApprovalConflict as exc:
+        raise HTTPException(409, str(exc))
+
+
+@app.post("/approvals/{approval_id}/decision")
+def decide_approval(approval_id: str, body: ApprovalDecision, ctx: AccessContext = Depends(access)) -> Dict[str, Any]:
+    from udre.governance.store import ApprovalConflict
+    try:
+        return engine().governance.decide(ctx.tenant_id, approval_id, body.approved, ctx.user_id, body.note)
+    except KeyError:
+        raise HTTPException(404, f"unknown approval {approval_id}")
+    except ApprovalConflict as exc:
+        raise HTTPException(409, str(exc))

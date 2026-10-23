@@ -5,6 +5,8 @@ export type ActionStatus =
   | 'failed'
   | 'blocked'
   | 'recommended'
+  | 'approved'
+  | 'rejected'
 
 export type Agent = 'Collections' | 'Spend Control' | 'Payments' | 'Cash-Flow' | 'Risk'
 
@@ -466,6 +468,7 @@ export const liveEvents: LiveEvent[] = [
 export type Mode = 'auto' | 'approve' | 'never'
 
 export interface Boundary {
+  id?: string // guardrail rule_id from the backend (live mode)
   action: string
   agent: string
   mode: Mode

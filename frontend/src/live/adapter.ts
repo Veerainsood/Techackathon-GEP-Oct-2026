@@ -2,8 +2,18 @@
 // reuses the original screens unchanged.
 import { useEffect, useState } from 'react'
 import type { FeedItem } from '../components/Autopilot'
-import type { AutoRun, Source, StandingGoal } from '../data'
-import { ago, api, type AnswerRow, type Investigation, type ModelConfig, type RuntimeSource, type SyncEventRow } from './api'
+import type { Action, AutoRun, Boundary, Mode, Source, StandingGoal } from '../data'
+import {
+  ago,
+  api,
+  type AnswerRow,
+  type ApprovalRow,
+  type GuardrailRow,
+  type Investigation,
+  type ModelConfig,
+  type RuntimeSource,
+  type SyncEventRow,
+} from './api'
 
 export const LIVE = ((import.meta.env.VITE_UDRE_MODE as string | undefined) ?? 'live') !== 'demo'
 
@@ -24,7 +34,8 @@ export function toSource(s: RuntimeSource, i: number): Source {
   return {
     id: i + 1,
     name: s.name || s.source_id,
-    system: `${TYPE_LABEL[s.type] ?? s.type} · ${s.mode ?? 'live'}`,
+    // Describe the business system, not the storage engine: "Contacts synced from HubSpot", not "PostgreSQL".
+    system: `${s.description || TYPE_LABEL[s.type] || s.type} · ${s.mode ?? 'live'}`,
     detail: `${s.collections} collections · ${s.data_version ? `data ${s.data_version}` : 'no sync events yet'}`,
     freshness: s.last_sync_at ? ago(s.last_sync_at) : s.snapshot_synced_at ? ago(s.snapshot_synced_at) : 'live connection',
     stale: BAD_SYNC.has(s.sync_status),
@@ -96,6 +107,16 @@ export function toGoals(sources: RuntimeSource[], events: SyncEventRow[]): Stand
       actionsToday: mine.filter((e) => e.status === 'processed').length,
     }
   })
+}
+
+/** Guardrail row from GET /guardrails -> Settings row. */
+export function toBoundary(g: GuardrailRow): Boundary {
+  return { id: g.rule_id, action: g.action, agent: g.agent, mode: g.mode as Mode, limit: g.limit, locked: g.locked }
+}
+
+/** Approval row -> the Action shape the Approvals screen and drawer render. The status comes from the queue row. */
+export function toAction(row: ApprovalRow): Action {
+  return { ...(row.payload as unknown as Action), id: row.approval_id, status: row.status }
 }
 
 export function toTimeline(invs: Investigation[]): AutoRun[] {
