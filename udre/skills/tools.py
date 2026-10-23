@@ -54,9 +54,9 @@ class ToolBox:
         """Run Python in this agent's sandbox. Referenced files are uploaded and checksum-verified first."""
         if not self.sandbox or not self.sandbox.enabled:
             return {"succeeded": False, "error_message": "no sandbox configured (UDRE_SANDBOX=off); use SQL tools"}
-        recs = [self.files.get(ctx.tenant_id, ctx.user_id, fid, kind="upload") for fid in (file_ids or [])]
         try:
-            res = self.sandbox.run(run_id, agent, code, recs, ctx.tenant_id, ctx.user_id, timeout_s=min(timeout_s, 600))
+            recs = [self.files.get(ctx.owner_tenant, ctx.user_id, fid, kind="upload") for fid in (file_ids or [])]
+            res = self.sandbox.run(run_id, agent, code, recs, ctx.owner_tenant, ctx.user_id, timeout_s=min(timeout_s, 600))
         except Exception as exc:
             return {"succeeded": False, "error_message": f"{type(exc).__name__}: {exc}"}
         return {"succeeded": res["exit_code"] == 0, **res}

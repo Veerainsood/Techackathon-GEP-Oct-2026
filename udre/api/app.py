@@ -20,12 +20,47 @@ from udre.engine import Engine, build_engine
 from udre.gateway.registry import AccessContext, AccessDenied
 from udre.skills.tools import ToolBox
 
-app = FastAPI(title="Universal Data Reasoning Engine", version="1.0.0")
+import os
+
+from fastapi.middleware.cors import CORSMiddleware
+
+app = FastAPI(title="Universal Data Reasoning Engine", version="1.1.0")
+app.add_middleware(CORSMiddleware, allow_origins=os.environ.get("UDRE_CORS_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173").split(","),
+                   allow_methods=["*"], allow_headers=["*"])
 
 
 @lru_cache(maxsize=1)
 def engine() -> Engine:
-    return build_engine()
+    e = build_engine()
+    if os.environ.get("UDRE_EVENT_WORKER", "1") == "1":
+        e.consumer.start(poll_s=float(os.environ.get("UDRE_EVENT_POLL_S", "1.0")))
+    return e
+
+
+def result_payload(state: Dict[str, Any], question: str, include_candidates: bool = False) -> Dict[str, Any]:
+    d = state["decision"]
+    out = {"question": question, "request_id": state.get("request_id"), "answer": d["final_answer"],
+           "verification_status": d["verification_status"], "selected_path": d["selected_path"],
+           "agreement_status": d["agreement_status"], "confidence_score": d["confidence_score"], "data": d["final_structured_data"],
+           "query": d["winning_query"], "source_id": d["winning_source_id"], "query_lineage": d["query_lineage"],
+           "disagreement_analysis": d.get("disagreement_analysis"), "assumptions": d["unresolved_assumptions"],
+           "evidence": [{"id": e["evidence_id"], "type": e["evidence_type"], "action": e["query_or_action"],
+                         "observed": e["observed_summary"]} for e in d["supporting_evidence"]],
+           "validation": [{"validator": f["validator_name"], "passed": f["passed"], "severity": f["severity"],
+                           "message": f["message"]} for f in d["validation_findings"]],
+           "adjudicator": d.get("llm_verdict") or {}, "verification_actions": d.get("verification_actions") or [],
+           "manifest": state.get("manifest"), "consistency": state.get("consistency"), "answer_id": state.get("answer_id"),
+           "artifacts": state.get("artifacts", []), "exports": state.get("exports", []), "trace": state["trace"],
+           "total_ms": state["total_ms"], "retried_from": state.get("retried_from"),
+           "candidates_summary": {c["agent_name"]: {"mode": c["reasoning_mode"], "value": c["structured_value"], "sql": c["query_or_plan"],
+                                                    "interpretation": c["interpreted_question"], "tool_calls": c["tool_calls_count"],
+                                                    "llm_usage": c.get("llm_usage"), "failure": c.get("failure"),
+                                                    "provenance": c.get("result_provenance")}
+                                  for c in (state.get("explorer_candidate"), state.get("hercules_candidate")) if c},
+           "errors": {k: state[k] for k in ("explorer_error", "hercules_error") if state.get(k)}}
+    if include_candidates:
+        out["candidates"] = {k: state.get(k) for k in ("explorer_candidate", "hercules_candidate")}
+    return out
 
 
 def access(x_tenant_id: str = Header("default"), x_user_id: str = Header("anonymous")) -> AccessContext:
@@ -38,6 +73,8 @@ class AskRequest(BaseModel):
     use_memory: bool = True
     export_formats: List[str] = Field(default_factory=list)
     include_candidates: bool = False
+    workspace_id: Optional[str] = None
+    sources: Optional[List[str]] = None  # restrict the analysis to these authorized sources
 
 
 class QueryRequest(BaseModel):
@@ -58,26 +95,20 @@ def health() -> Dict[str, Any]:
     return {"status": "ok", "sources": [s.source_id for s in e.gateway.sources(e.default_ctx)]}
 
 
+def _scoped(req: "AskRequest", ctx: AccessContext) -> AccessContext:
+    if req.sources:
+        ctx.allowed_sources = set(req.sources)
+    return ctx
+
+
 @app.post("/ask")
 def ask(req: AskRequest, ctx: AccessContext = Depends(access)) -> Dict[str, Any]:
     try:
-        state = engine().ask(req.question, ctx=ctx, mode=req.mode, use_memory=req.use_memory, export_formats=req.export_formats)
+        state = engine().ask(req.question, ctx=_scoped(req, ctx), mode=req.mode, use_memory=req.use_memory,
+                             export_formats=req.export_formats, workspace_id=req.workspace_id)
     except AccessDenied as exc:
         raise HTTPException(403, str(exc))
-    d = state["decision"]
-    out = {"question": req.question, "answer": d["final_answer"], "verification_status": d["verification_status"],
-           "selected_path": d["selected_path"], "agreement_status": d["agreement_status"],
-           "confidence_score": d["confidence_score"], "data": d["final_structured_data"], "query": d["winning_query"],
-           "source_id": d["winning_source_id"], "query_lineage": d["query_lineage"],
-           "disagreement_analysis": d.get("disagreement_analysis"), "assumptions": d["unresolved_assumptions"],
-           "evidence": [{"id": e["evidence_id"], "type": e["evidence_type"], "action": e["query_or_action"],
-                         "observed": e["observed_summary"]} for e in d["supporting_evidence"]],
-           "validation": [{"validator": f["validator_name"], "passed": f["passed"], "severity": f["severity"],
-                           "message": f["message"]} for f in d["validation_findings"]],
-           "exports": state.get("exports", []), "trace": state["trace"], "total_ms": state["total_ms"]}
-    if req.include_candidates:
-        out["candidates"] = {k: state.get(k) for k in ("explorer_candidate", "hercules_candidate")}
-    return out
+    return result_payload(state, req.question, req.include_candidates)
 
 
 @app.get("/sources")
@@ -164,12 +195,11 @@ def ask_stream(req: AskRequest, ctx: AccessContext = Depends(access)):
 
     def work():
         try:
-            state = engine().workflow.run(req.question, ctx, mode=req.mode, use_memory=req.use_memory,
-                                          export_formats=req.export_formats, on_event=q.put)
-            q.put({"event": "decision", "decision": {k: state["decision"][k] for k in (
-                "final_answer", "verification_status", "selected_path", "agreement_status", "winning_query", "query_lineage")}})
+            state = engine().ask(req.question, ctx=_scoped(req, ctx), mode=req.mode, use_memory=req.use_memory,
+                                 export_formats=req.export_formats, workspace_id=req.workspace_id, on_event=q.put)
+            q.put({"event": "result", "result": result_payload(state, req.question)})
         except Exception as exc:
-            q.put({"event": "error", "error": str(exc)})
+            q.put({"event": "error", "error": f"{type(exc).__name__}: {exc}"})
         q.put(None)
 
     threading.Thread(target=work, daemon=True).start()
@@ -273,6 +303,132 @@ async def hubspot_webhook(source_id: str, request: Request) -> Dict[str, Any]:
 
     stores = [s for k, s in engine().ingestion.stores.items() if k.endswith(f"/{source_id}")]
     return {"queued": conn.handle_webhook(_json.loads(body), stores[0] if stores else None)}
+
+
+# ============================================================================ runtime: sync events and freshness
+@app.post("/events/sync")
+async def sync_event(request: Request, process: bool = False) -> Dict[str, Any]:
+    """Ingress for the ingestion service. Body: udre.sync-event.v1 JSON; header X-UDRE-Signature: HMAC-SHA256 hex."""
+    body = await request.body()
+    res = engine().consumer.submit(body, request.headers.get("X-UDRE-Signature"))
+    if res["status"] == "rejected":
+        raise HTTPException(400 if "invalid event" in res.get("reason", "") else 401, res)
+    if process and res["status"] == "accepted":
+        res["processing"] = engine().consumer.drain(max_events=10)
+    return res
+
+
+@app.get("/runtime/sources")
+def runtime_sources(ctx: AccessContext = Depends(access)) -> List[Dict[str, Any]]:
+    e = engine()
+    versions = {v["source_id"]: v for v in e.runtime_store.source_versions(ctx.tenant_id)}
+    out = []
+    for s in e.gateway.sources(ctx):
+        adapter = e.gateway.adapter(ctx, s.source_id)
+        cur = e.contexts.current(ctx.tenant_id, s.source_id) if e.contexts else None
+        v = versions.get(s.source_id, {})
+        prov = adapter.provenance()
+        out.append({"source_id": s.source_id, "name": s.name, "type": s.source_type.value, "mode": prov.get("mode"),
+                    "snapshot_synced_at": prov.get("synced_at"), "collections": len(e.gateway.collections(ctx, s.source_id)),
+                    "data_version": v.get("data_version"), "sequence": v.get("sequence"), "sync_status": v.get("sync_status", "no events yet"),
+                    "last_sync_at": v.get("last_sync_at"), "last_window_end": v.get("last_window_end"), "last_error": v.get("last_error"),
+                    "schema_version": e.kg.source_version(s.source_id, ctx.tenant_id), "knowledge_version": cur["version"] if cur else None})
+    return out
+
+
+@app.get("/runtime/events")
+def runtime_events(source_id: Optional[str] = None, limit: int = 50, ctx: AccessContext = Depends(access)) -> List[Dict[str, Any]]:
+    rows = engine().runtime_store.events(ctx.tenant_id, source_id, limit)
+    for r in rows:
+        p = r.pop("payload", {}) or {}
+        r["collections"] = [c["name"] for c in p.get("collections", [])]
+    return rows
+
+
+@app.get("/runtime/investigations")
+def runtime_investigations(source_id: Optional[str] = None, limit: int = 30, ctx: AccessContext = Depends(access)) -> List[Dict[str, Any]]:
+    return engine().runtime_store.investigations(ctx.tenant_id, source_id, limit)
+
+
+@app.get("/runtime/answers")
+def runtime_answers(limit: int = 30, ctx: AccessContext = Depends(access)) -> List[Dict[str, Any]]:
+    return engine().runtime_store.answers(ctx.tenant_id, limit)
+
+
+@app.get("/runtime/models")
+def runtime_models() -> Dict[str, Any]:
+    return engine().model_config()
+
+
+# ============================================================================ files, workspaces, artifacts
+@app.post("/files")
+def upload_files(files: List[UploadFile] = File(...), ctx: AccessContext = Depends(access)) -> List[Dict[str, Any]]:
+    out = []
+    for f in files:
+        try:
+            rec = engine().files.save(ctx.tenant_id, ctx.user_id, f.filename or "upload", f.file, content_type=f.content_type or "")
+        except ValueError as exc:
+            raise HTTPException(400, str(exc))
+        out.append(rec.public())
+    return out
+
+
+@app.get("/files")
+def list_files(ctx: AccessContext = Depends(access)) -> List[Dict[str, Any]]:
+    return [r.public() for r in engine().files.list(ctx.tenant_id, ctx.user_id, "upload")]
+
+
+def _download(ctx: AccessContext, file_id: str, kind: str) -> FileResponse:
+    from udre.tools.files import FileAccessDenied
+
+    try:
+        rec = engine().files.get(ctx.tenant_id, ctx.user_id, file_id, kind=kind)
+    except FileAccessDenied as exc:
+        raise HTTPException(404, str(exc))
+    return FileResponse(engine().files.path(rec), filename=rec.filename, media_type=rec.content_type or None)
+
+
+@app.get("/files/{file_id}/download")
+def download_file(file_id: str, ctx: AccessContext = Depends(access)) -> FileResponse:
+    return _download(ctx, file_id, "upload")
+
+
+@app.get("/artifacts")
+def list_artifacts(run_id: Optional[str] = None, ctx: AccessContext = Depends(access)) -> List[Dict[str, Any]]:
+    return [r.public() for r in engine().files.list(ctx.tenant_id, ctx.user_id, "artifact", run_id)]
+
+
+@app.get("/artifacts/{file_id}/download")
+def download_artifact(file_id: str, ctx: AccessContext = Depends(access)) -> FileResponse:
+    return _download(ctx, file_id, "artifact")
+
+
+class WorkspaceRequest(BaseModel):
+    file_ids: List[str]
+
+
+@app.post("/workspaces")
+def create_workspace(req: WorkspaceRequest, ctx: AccessContext = Depends(access)) -> Dict[str, Any]:
+    from udre.tools.files import FileAccessDenied
+
+    try:
+        return engine().workspaces.create(ctx, req.file_ids)
+    except (FileAccessDenied, ValueError) as exc:
+        raise HTTPException(400, str(exc))
+
+
+@app.get("/workspaces")
+def list_workspaces(ctx: AccessContext = Depends(access)) -> List[Dict[str, Any]]:
+    return engine().workspaces.list(ctx)
+
+
+@app.delete("/workspaces/{workspace_id}")
+def delete_workspace(workspace_id: str, ctx: AccessContext = Depends(access)) -> Dict[str, Any]:
+    try:
+        engine().workspaces.close(ctx, workspace_id)
+    except AccessDenied as exc:
+        raise HTTPException(404, str(exc))
+    return {"deleted": workspace_id}
 
 
 @app.post("/export")

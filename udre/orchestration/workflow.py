@@ -375,10 +375,10 @@ class DualPathWorkflow:
         artifacts = []
         if getattr(self.e, "files", None):
             for x in exports:
-                rec = self.e.files.save_bytes(ctx.tenant_id, ctx.user_id, Path(x["path"]).name, Path(x["path"]).read_bytes(),
+                rec = self.e.files.save_bytes(ctx.owner_tenant, ctx.user_id, Path(x["path"]).name, Path(x["path"]).read_bytes(),
                                               kind="artifact", run_id=state["request_id"], origin=f"export:{x['format']}")
                 artifacts.append(rec.public())
-            artifacts += [r.public() for r in self.e.files.list(ctx.tenant_id, ctx.user_id, kind="artifact", run_id=state["request_id"])
+            artifacts += [r.public() for r in self.e.files.list(ctx.owner_tenant, ctx.user_id, kind="artifact", run_id=state["request_id"])
                           if r.origin and r.origin.startswith("sandbox:")]
         answer_id = None
         if getattr(self.e, "runtime_store", None) and d.get("winning_query"):
@@ -387,7 +387,7 @@ class DualPathWorkflow:
                 tables = sorted(analyze(d["winning_query"], dialect).tables)
             except Exception:
                 tables = []
-            answer_id = self.e.runtime_store.save_answer(ctx.tenant_id, state["question"], state.get("manifest") or {},
+            answer_id = self.e.runtime_store.save_answer(ctx.owner_tenant, state["question"], state.get("manifest") or {},
                                                          [d["winning_source_id"]], tables,
                                                          {k: d.get(k) for k in ("final_answer", "verification_status", "selected_path",
                                                                                 "winning_query", "agreement_status")})

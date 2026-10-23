@@ -57,7 +57,7 @@ class WorkspaceManager:
     def context(self, ctx: AccessContext, ws_id: str) -> AccessContext:
         info = self.get(ctx, ws_id)
         return AccessContext(tenant_id=info["namespace"], user_id=ctx.user_id, max_rows=ctx.max_rows,
-                             manifest={"workspace_files": info["files"]})
+                             manifest={"workspace_files": info["files"]}, principal_tenant=ctx.tenant_id)
 
     def list(self, ctx: AccessContext) -> List[Dict[str, Any]]:
         return [w for w in self._ws.values() if w["tenant_id"] == ctx.tenant_id and w["owner"] == ctx.user_id]

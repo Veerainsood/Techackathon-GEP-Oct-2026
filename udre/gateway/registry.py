@@ -27,6 +27,12 @@ class AccessContext:
     timeout_s: int = 30
     snapshots: Dict[str, str] = field(default_factory=dict)  # source_id -> exported snapshot id for this analysis
     manifest: Dict[str, Any] = field(default_factory=dict)  # source-version manifest the analysis is pinned to
+    principal_tenant: Optional[str] = None  # real tenant when tenant_id is a workspace knowledge namespace
+
+    @property
+    def owner_tenant(self) -> str:
+        """Tenant that owns files, artifacts and answers (workspace namespaces only scope knowledge)."""
+        return self.principal_tenant or self.tenant_id
 
 
 @dataclass
