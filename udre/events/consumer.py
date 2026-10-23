@@ -26,6 +26,10 @@ class EventConsumer:
                  on_event: Optional[Callable[[Dict[str, Any]], None]] = None):
         self.store = store
         self.investigator = investigator
+        if secret is None:
+            from udre.llm.config import _load_dotenv
+
+            _load_dotenv()  # the shared secret lives in .env alongside the other UDRE_* settings
         self.secret = secret if secret is not None else os.environ.get("UDRE_EVENT_SECRET", "")
         self.allow_unsigned = allow_unsigned if allow_unsigned is not None else os.environ.get("UDRE_EVENT_ALLOW_UNSIGNED") == "1"
         self.max_attempts = max_attempts or investigator.policy.max_visibility_retries

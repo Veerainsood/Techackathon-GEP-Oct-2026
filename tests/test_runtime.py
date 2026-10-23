@@ -562,6 +562,13 @@ def test_change_through_one_source_flags_answers_of_a_source_on_the_same_databas
         e.gateway.unregister("sync_lab_view")
 
 
+def test_collection_reported_with_zero_changes_counts_as_checked(rt):
+    res = process(rt, event(collections=[{"name": "lab.audit_notes", "timestamp_column": None, "expected_changes": 0, "changes": []}]))
+    c = coll(res, "lab.audit_notes")
+    assert c["status"] == "ok" and c["method"] == "producer_reported_no_changes" and c["changed_rows"] == 0
+    assert summary(res)["changed_collections"] == []
+
+
 def test_table_created_after_startup_is_investigated_without_restart(rt):
     write(rt, "CREATE TABLE lab.contacts (contact_id VARCHAR(20) PRIMARY KEY, email TEXT, synced_at TIMESTAMP NOT NULL)")
     write(rt, "INSERT INTO lab.contacts VALUES ('K1', 'k1@example.com', %s)", (at(5),))

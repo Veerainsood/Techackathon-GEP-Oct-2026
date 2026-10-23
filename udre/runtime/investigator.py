@@ -178,6 +178,11 @@ class ChangeInvestigator:
         f.schema_changed = col.schema_changed or self._schema_drift(ctx, ev.source_id, col.name, schema)
         tomb = next((c for c in TOMBSTONE_COLUMNS if c in cols), None)
 
+        if not col.changes and col.expected_changes == 0:
+            f.method, f.changed_rows = "producer_reported_no_changes", 0
+            f.notes.append("producer reported zero changes for this collection in the window")
+            return
+
         if col.changes and pk:
             f.method = "cdc_keys"
             for ch in col.changes:

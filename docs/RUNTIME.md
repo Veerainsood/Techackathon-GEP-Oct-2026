@@ -33,6 +33,10 @@ The UI itself is unchanged. Live mode feeds the original screens from the backen
 
 Approvals and Settings keep their original content: the backend has no action-execution or guardrail API, so live mode creates no actions and Approvals shows "You're all caught up".
 
+### HubSpot ingestion (`knowledge-ingestion/`)
+
+`scripts/start_dev.ps1` also starts the ingestion service on port 8001 when `knowledge-ingestion/.env` exists. It polls HubSpot, writes `hubspot.contacts` and `pipeline_crm.prospect_accounts` into the warehouse database, and publishes signed sync events to `UDRE_EVENTS_URL` (http://localhost:8000). Both `.env` files need the same `UDRE_EVENT_SECRET`. UDRE exposes these tables as the `hubspot` source, and `finance_pg` hides the `hubspot` and `public` schemas, which hold the service's own bookkeeping tables, including raw HubSpot payloads.
+
 ## Flow
 
 ```mermaid
