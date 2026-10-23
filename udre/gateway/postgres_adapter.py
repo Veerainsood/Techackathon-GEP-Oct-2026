@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import threading
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import psycopg2
+from psycopg2.pool import ThreadedConnectionPool
 
 from udre.contracts.models import CollectionSchema, ColumnSchema, SourceCapabilities, SourceDescriptor, SourceType
 from udre.gateway.base import SQLSourceAdapter
@@ -25,27 +27,43 @@ class PostgresSourceAdapter(SQLSourceAdapter):
             connection_metadata={"uri": uri.split("@")[-1]})
         self._schema_cache: Dict[str, CollectionSchema] = {}
         self._collections: Optional[List[str]] = None
+        self._pool_obj: Optional[ThreadedConnectionPool] = None
+        self._pool_lock = threading.Lock()
 
     @property
     def dialect(self) -> str:
         return "postgres"
 
-    def _connect(self):
-        return psycopg2.connect(self.uri, connect_timeout=5)
+    def _pool(self) -> ThreadedConnectionPool:
+        if self._pool_obj is None:
+            with self._pool_lock:
+                if self._pool_obj is None:
+                    self._pool_obj = ThreadedConnectionPool(1, 16, self.uri, connect_timeout=5)
+        return self._pool_obj
 
     def _run(self, sql: str, params: Optional[Sequence[Any]] = None, timeout_s: int = 30) -> Tuple[List[str], List[tuple]]:
-        conn = self._connect()
+        pool = self._pool()
+        conn = pool.getconn()
+        broken = False
         try:
-            conn.set_session(readonly=True, autocommit=False)
+            if not conn.readonly:
+                conn.set_session(readonly=True, autocommit=False)
             with conn.cursor() as cur:
                 cur.execute(f"SET LOCAL statement_timeout = {int(timeout_s * 1000)}")
                 cur.execute(sql, params)
                 cols = [d[0] for d in cur.description] if cur.description else []
                 rows = cur.fetchall() if cur.description else []
-            conn.rollback()
             return cols, rows
+        except psycopg2.InterfaceError:
+            broken = True
+            raise
         finally:
-            conn.close()
+            if not broken:
+                try:
+                    conn.rollback()
+                except psycopg2.Error:
+                    broken = True
+            pool.putconn(conn, close=broken)
 
     def test_connection(self) -> bool:
         try:

@@ -43,6 +43,7 @@ class NodeType(str, Enum):
 
 
 class EdgeType(str, Enum):
+    CONTAINS = "CONTAINS"
     HAS_COLUMN = "HAS_COLUMN"
     REPRESENTS_CONCEPT = "REPRESENTS_CONCEPT"
     REFERENCES = "REFERENCES"

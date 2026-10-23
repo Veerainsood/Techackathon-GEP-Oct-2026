@@ -1,0 +1,54 @@
+# Business terminology pack for financial management analytics.
+# Packs describe vocabulary and metric *shapes* in terms of concepts only. They never name a
+# table, schema or physical column; bindings to physical columns are discovered by the
+# ontology builder from names, descriptions and profiled values, and stay "inferred" until
+# verified against data.
+name: finance
+reporting_currency: USD
+reporting_currency_tokens: [usd]
+
+# Status values that usually mean "exclude from totals" -- surfaced as warnings, never applied silently.
+nullifying_status_terms: [void, voided, cancelled, canceled, reversed, draft, deleted, rejected, pending approval, omit]
+
+concepts:
+  invoice:        {kind: entity,    synonyms: [invoice, invoices, billing, bill, billed]}
+  receivable:     {kind: entity,    synonyms: [receivable, receivables, ar, debtor, debtors]}
+  open_balance:   {kind: measure,   synonyms: [open balance, outstanding, unpaid, open ar, remaining balance]}
+  payment:        {kind: entity,    synonyms: [payment, payments, receipt, cash, settlement, collected]}
+  credit_note:    {kind: entity,    synonyms: [credit memo, credit note, credit memos, credits]}
+  revenue:        {kind: measure,   synonyms: [revenue, sales, income, recognized revenue, invoiced]}
+  subtotal:       {kind: measure,   synonyms: [subtotal, net amount, pre tax, net line]}
+  gross_amount:   {kind: measure,   synonyms: [gross, gross total, total including tax]}
+  tax:            {kind: measure,   synonyms: [tax, vat, gst]}
+  customer:       {kind: entity,    synonyms: [customer, customers, client, clients, conglomerate, conglomerates, counterparty, account group, customer group]}
+  currency:       {kind: dimension, synonyms: [currency, ccy, fx, exchange rate]}
+  fiscal_period:  {kind: dimension, synonyms: [fiscal period, period, month, fiscal year, year]}
+  legal_entity:   {kind: dimension, synonyms: [legal entity, company code, subsidiary, entity]}
+  region:         {kind: dimension, synonyms: [region, theater, territory, geography, geo]}
+  product_line:   {kind: dimension, synonyms: [product line, product family, product, offering, sku]}
+  industry:       {kind: dimension, synonyms: [industry, vertical, sector]}
+  segment:        {kind: dimension, synonyms: [segment, tier, market segment]}
+  status:         {kind: dimension, synonyms: [status, state, stage]}
+  gl_account:     {kind: entity,    synonyms: [gl account, general ledger, chart of accounts, account number]}
+  journal:        {kind: entity,    synonyms: [journal, voucher, vouchers, posting, postings, journal entry]}
+  debit:          {kind: measure,   synonyms: [debit, debits]}
+  credit_amount:  {kind: measure,   synonyms: [credit amount, credits posted]}
+  opportunity:    {kind: entity,    synonyms: [deal, deals, opportunity, opportunities, pipeline]}
+  probability:    {kind: measure,   synonyms: [probability, win probability, win rate, likelihood]}
+  arr:            {kind: measure,   synonyms: [arr, annual recurring, recurring revenue, annualized]}
+  tcv:            {kind: measure,   synonyms: [tcv, total contract value, contract value]}
+  contract:       {kind: entity,    synonyms: [contract, contracts, agreement, agreements, msa, order form]}
+  budget:         {kind: measure,   synonyms: [budget, target, plan, forecast, quota]}
+  pipeline:       {kind: measure,   synonyms: [pipeline, weighted pipeline, open pipeline]}
+  sales_rep:      {kind: entity,    synonyms: [sales rep, salesperson, rep, reps, account executive, quota carrier]}
+  ingestion:      {kind: entity,    synonyms: [sync, ingestion, data load, batch, batches]}
+
+# Metric shapes: bound to columns that represent *all* measure concepts listed.
+metrics:
+  - {name: open_receivables, label: Open receivables balance, aggregation: SUM, measure_concepts: [open_balance], synonyms: [open ar, outstanding receivables, ar balance]}
+  - {name: invoiced_revenue, label: Invoiced revenue (pre-tax), aggregation: SUM, measure_concepts: [subtotal], synonyms: [invoiced revenue, billings, revenue]}
+  - {name: gross_billings, label: Gross billings incl. tax, aggregation: SUM, measure_concepts: [gross_amount], synonyms: [gross billings, gross invoiced]}
+  - {name: recognized_revenue, label: Recognized GL revenue, aggregation: SUM, measure_concepts: [revenue], synonyms: [recognized revenue, gl revenue, revenue]}
+  - {name: contracted_arr, label: Contracted / pipeline ARR, aggregation: SUM, measure_concepts: [arr], synonyms: [arr, contracted arr, revenue]}
+  - {name: weighted_pipeline, label: Weighted pipeline, aggregation: SUM, measure_concepts: [pipeline], synonyms: [weighted pipeline]}
+  - {name: budget_target, label: Budget / plan target, aggregation: SUM, measure_concepts: [budget], synonyms: [budget, plan, target]}

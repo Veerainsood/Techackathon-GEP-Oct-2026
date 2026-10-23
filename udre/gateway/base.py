@@ -174,6 +174,57 @@ class SQLSourceAdapter(DataSourceAdapter):
             mean_value=float(mean) if mean is not None else None, top_values=top,
             sample_values=[jsonable(r[0]) for r in srows])
 
+    def profile_collection(self, collection: str, top_k: int = 15) -> Dict[str, ColumnProfile]:
+        """Profile every column with two queries (aggregates + categorical distributions)."""
+        schema = self.describe_collection(collection)
+        t = self.quote(collection)
+        exprs: List[str] = ["COUNT(*)"]
+        for col in schema.columns:
+            q, fam = self.quote(col.name), type_family(col.data_type)
+            exprs += [f"COUNT({q})", f"COUNT(DISTINCT {q})"]
+            if fam in ("numeric", "temporal"):
+                exprs += [f"MIN({q})", f"MAX({q})"]
+            elif fam == "text":
+                exprs += [f"MIN(CAST({q} AS VARCHAR))", f"MAX(CAST({q} AS VARCHAR))"]
+            else:
+                exprs += ["NULL", "NULL"]
+            exprs.append(f"AVG({q})" if fam == "numeric" else "NULL")
+        _c, rows = self._run(f"SELECT {', '.join(exprs)} FROM {t}")
+        agg = rows[0]
+        total = int(agg[0] or 0)
+        stats: Dict[str, tuple] = {}
+        for i, col in enumerate(schema.columns):
+            stats[col.name] = agg[1 + i * 5: 6 + i * 5]
+        categorical = []
+        for col in schema.columns:
+            non_null, distinct = int(stats[col.name][0] or 0), int(stats[col.name][1] or 0)
+            fam = type_family(col.data_type)
+            if fam in ("text", "boolean") and distinct > 0 and (distinct <= 60 or distinct / max(non_null, 1) < 0.02):
+                categorical.append(col.name)
+        tops: Dict[str, List[Dict[str, Any]]] = {c: [] for c in categorical}
+        if categorical:
+            union = " UNION ALL ".join(
+                f"SELECT '{c}' AS c, CAST({self.quote(c)} AS VARCHAR) AS v, COUNT(*) AS n FROM {t} "
+                f"WHERE {self.quote(c)} IS NOT NULL GROUP BY CAST({self.quote(c)} AS VARCHAR)" for c in categorical)
+            _c, trows = self._run(union)
+            for c, v, n in sorted(trows, key=lambda r: (r[0], -int(r[2]), str(r[1]))):
+                if len(tops[c]) < top_k:
+                    tops[c].append({"value": v, "count": int(n)})
+        _c, srows = self._run(f"SELECT * FROM {t} LIMIT 5")
+        profiles: Dict[str, ColumnProfile] = {}
+        for i, col in enumerate(schema.columns):
+            non_null, distinct, mn, mx, mean = stats[col.name]
+            non_null, distinct = int(non_null or 0), int(distinct or 0)
+            samples = list(dict.fromkeys(jsonable(r[i]) for r in srows if r[i] is not None))[:5]
+            profiles[col.name] = ColumnProfile(
+                source_id=self.source_id, collection_name=collection, column_name=col.name, data_type=col.data_type,
+                total_count=total, null_count=total - non_null,
+                null_ratio=round((total - non_null) / total, 4) if total else 0.0, distinct_count=distinct,
+                cardinality_ratio=round(distinct / total, 4) if total else 0.0, is_categorical=col.name in tops,
+                min_value=jsonable(mn), max_value=jsonable(mx), mean_value=float(mean) if mean is not None else None,
+                top_values=tops.get(col.name, []), sample_values=samples)
+        return profiles
+
     def sample_rows(self, collection: str, n: int = 5) -> QueryExecutionResult:
         return self.execute(f"SELECT * FROM {self.quote(collection)} LIMIT {int(n)}", max_rows=n)
 
