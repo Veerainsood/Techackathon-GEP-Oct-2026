@@ -87,4 +87,5 @@ def build_candidate(agent: str, question: str, plan: QueryPlan, sql: str, res: D
         query_or_plan=sql, source_id=plan.source_id, observed_results=(res.get("rows") or [])[:50],
         evidence_references=evidence, verification_results=checks, open_questions=open_q,
         final_answer_candidate=answer, structured_value=value, tool_calls_count=len(session.observations),
-        tokens_used=session.tokens_observed + context_tokens, latency_ms=round(latency_ms, 1), investigation_trace=state)
+        tokens_used=session.tokens_observed + context_tokens, latency_ms=round(latency_ms, 1), investigation_trace=state,
+        result_provenance=res.get("provenance") or {})

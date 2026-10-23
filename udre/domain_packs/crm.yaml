@@ -1,0 +1,10 @@
+# CRM vocabulary (concepts only; bindings are discovered from names, descriptions and API metadata).
+# Synonyms are kept specific so they do not bind to unrelated columns in other domains (e.g. "amount").
+name: crm
+concepts:
+  crm_company:   {kind: entity,    synonyms: [companies, company domain, company name]}
+  crm_contact:   {kind: entity,    synonyms: [contacts, contact, job title]}
+  deal_stage:    {kind: dimension, synonyms: [deal stage, dealstage]}
+  lifecycle:     {kind: dimension, synonyms: [lifecycle stage, lifecyclestage]}
+  association:   {kind: entity,    synonyms: [association, associations]}
+  mrr:           {kind: measure,   synonyms: [mrr, monthly recurring revenue]}

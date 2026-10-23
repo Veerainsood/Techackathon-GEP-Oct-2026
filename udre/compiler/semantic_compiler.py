@@ -26,13 +26,18 @@ from udre.ontology.embedding import cosine, embed
 from udre.ontology.graph import KnowledgeGraph
 
 _TYPE_CODE = {"numeric": "n", "text": "t", "temporal": "d", "boolean": "b"}
-PII_COLUMN = re.compile(r"(email|phone|mobile|ssn|tax_id|passport|iban|account_number|address|serial|imei|password|token|secret)", re.I)
+PII_COLUMN = re.compile(r"(email|phone|mobile|ssn|tax_id|passport|iban|account_number|address|serial|imei|password|token|"
+                        r"secret|principal|upn|birth)", re.I)
+EMAIL_VALUE = re.compile(r"[^@\s]+@[^@\s]+\.[A-Za-z]{2,}")
 
 
 def mask_sample(column: str, value: Any) -> Any:
-    if value is None or not PII_COLUMN.search(column):
+    """Mask values of sensitive-looking columns and any email-like value, wherever metadata is projected."""
+    if value is None:
         return value
     s = str(value)
+    if not PII_COLUMN.search(column) and not EMAIL_VALUE.search(s):
+        return value
     return s[:2] + "***" if len(s) > 2 else "***"
 
 try:

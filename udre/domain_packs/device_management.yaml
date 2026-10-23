@@ -1,0 +1,13 @@
+# Endpoint/device-management vocabulary (concepts only).
+name: device_management
+nullifying_status_terms: [retired, wiped, deleted]
+concepts:
+  device:          {kind: entity,    synonyms: [device, devices, managed device, endpoint, machine]}
+  compliance:      {kind: dimension, synonyms: [compliance, compliant, noncompliant, compliance state]}
+  operating_system: {kind: dimension, synonyms: [operating system, os, os version, platform]}
+  device_user:     {kind: entity,    synonyms: [user, user principal name, owner]}
+  application:     {kind: entity,    synonyms: [app, apps, application, detected app, software]}
+  policy:          {kind: entity,    synonyms: [policy, policies, compliance policy]}
+  last_sync:       {kind: dimension, synonyms: [last sync, last check in, last contact]}
+  encryption:      {kind: dimension, synonyms: [encrypted, encryption]}
+  storage:         {kind: measure,   synonyms: [storage, storage space, free storage]}

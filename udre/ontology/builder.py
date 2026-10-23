@@ -217,7 +217,7 @@ class OntologyBuilder:
                 target_coll, target_col = fk["references"].rsplit(".", 1)
                 if target_coll in schemas:
                     rels.append(dict(child=cname, child_col=fk["column"], parent=target_coll, parent_col=target_col,
-                                     declared=True))
+                                     declared=True, extra=fk.get("properties") or {}))
                     declared.add((cname, fk["column"]))
         unique_cols = {(c, col.name) for c, s in schemas.items() for col in s.columns
                        if profiles[(c, col.name)].total_count > 0
@@ -261,8 +261,8 @@ class OntologyBuilder:
                 edge_id=f"e:ref:{sid}:{r['child']}.{r['child_col']}->{r['parent']}.{r['parent_col']}",
                 source_node_id=col_id(sid, r["child"], r["child_col"]), target_node_id=col_id(sid, r["parent"], r["parent_col"]),
                 edge_type=EdgeType.REFERENCES,
-                properties={k: r[k] for k in ("child", "child_col", "parent", "parent_col", "declared", "containment",
-                                              "fanout", "null_keys", "cardinality")},
+                properties={**{k: r[k] for k in ("child", "child_col", "parent", "parent_col", "declared", "containment",
+                                                 "fanout", "null_keys", "cardinality")}, **r.get("extra", {})},
                 provenance="declared_foreign_key" if r["declared"] else "inferred_name_and_containment",
                 verification_status=V if verified else I, schema_version=version,
                 confidence=1.0 if verified else round(0.5 + 0.4 * containment, 3), evidence_refs=[ev.evidence_id]))

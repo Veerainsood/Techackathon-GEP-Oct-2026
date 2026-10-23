@@ -98,7 +98,7 @@ class CollectionSchema(BaseModel):
     columns: List[ColumnSchema] = Field(default_factory=list)
     description: str = ""
     primary_keys: List[str] = Field(default_factory=list)
-    foreign_keys: List[Dict[str, str]] = Field(default_factory=list)
+    foreign_keys: List[Dict[str, Any]] = Field(default_factory=list)  # {"column", "references", optional "properties"}
     indexes: List[str] = Field(default_factory=list)
 
 

@@ -18,6 +18,8 @@ from udre.gateway.postgres_adapter import PostgresSourceAdapter
 from udre.memory.learning_store import LearningStore
 from udre.ontology.builder import OntologyBuilder, load_packs
 from udre.ontology.graph import KnowledgeGraph
+from udre.ingestion.pipeline import IngestionPipeline
+from udre.ontology.cross_source import CrossSourceMatcher
 from udre.skills.context_generator import CollectionContextGenerator
 from udre.skills.registry import SkillRegistry
 from udre.skills.tools import ToolBox
@@ -43,6 +45,8 @@ class Engine:
     contexts: Any = None
     skills: Any = None
     llm: Any = None
+    cross_source: Any = None
+    ingestion: Any = None
     _ctx_cache: Dict[Tuple[str, str, bool], CompiledSemanticContext] = field(default_factory=dict)
     _lock: threading.Lock = field(default_factory=threading.Lock)
 
@@ -126,5 +130,7 @@ def build_engine(settings: Optional[Settings] = None, register_defaults: bool = 
                     verifier=Verifier(gateway, kg, packs), adjudicator=Adjudicator(gateway, toolbox))
     engine.skills = SkillRegistry()
     engine.contexts = CollectionContextGenerator(gateway, kg, engine.memory, compiler)
+    engine.cross_source = CrossSourceMatcher(gateway, kg)
+    engine.ingestion = IngestionPipeline(engine)
     engine.workflow = DualPathWorkflow(engine)
     return engine

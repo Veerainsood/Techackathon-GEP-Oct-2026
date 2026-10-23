@@ -56,6 +56,14 @@ class SourceGateway:
         adapter.descriptor.is_connected = True
         return adapter.descriptor
 
+    def grant(self, source_id: str, tenant: str) -> None:
+        with self._lock:
+            self._tenants[source_id].add(tenant)
+
+    def revoke(self, source_id: str, tenant: str) -> None:
+        with self._lock:
+            self._tenants[source_id].discard(tenant)
+
     def unregister(self, source_id: str) -> None:
         with self._lock:
             self._adapters.pop(source_id, None)
