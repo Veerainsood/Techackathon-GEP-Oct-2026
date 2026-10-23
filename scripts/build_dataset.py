@@ -16,10 +16,10 @@ sys.path.insert(0, str(ROOT))
 
 import psycopg2  # noqa: E402
 
-from udre.synthetic.generator import SEED, SyntheticFinanceGenerator  # noqa: E402
-from udre.synthetic.ground_truth import FINANCIAL_INVARIANTS, build_benchmark  # noqa: E402
-from udre.synthetic.loader import export_files, get_postgres_uri, load_to_postgres  # noqa: E402
-from udre.synthetic.schema_spec import generate_postgresql_ddl, generate_schema_mapping_markdown  # noqa: E402
+from backend.synthetic.generator import SEED, SyntheticFinanceGenerator  # noqa: E402
+from backend.synthetic.ground_truth import FINANCIAL_INVARIANTS, build_benchmark  # noqa: E402
+from backend.synthetic.loader import export_files, get_postgres_uri, load_to_postgres  # noqa: E402
+from backend.synthetic.schema_spec import generate_postgresql_ddl, generate_schema_mapping_markdown  # noqa: E402
 
 
 def check_benchmark_sql(cur, bench) -> list[tuple[str, bool]]:

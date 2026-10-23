@@ -1,5 +1,5 @@
 """Event-driven runtime: contract, consumer, scoped investigation, versions, snapshots, invalidation, adjudication,
-sandbox, uploads and streaming.  Uses a dedicated ``udre_sync_lab`` database written by a simulated ingestion
+sandbox, uploads and streaming.  Uses a dedicated ``backend_sync_lab`` database written by a simulated ingestion
 service; external services (LLM, Daytona) are mocked here -- see tests/test_live_smoke.py for live runs."""
 
 import io
@@ -9,8 +9,8 @@ from datetime import datetime, timedelta, timezone
 import psycopg2
 import pytest
 
-from udre.events.contracts import SyncEvent, json_schema, sign
-from udre.gateway.registry import AccessContext
+from backend.events.contracts import SyncEvent, json_schema, sign
+from backend.gateway.registry import AccessContext
 
 TENANT = "t_runtime"
 SECRET = "test-secret"
@@ -43,11 +43,11 @@ def lab_reset(uri: str) -> None:
 
 @pytest.fixture(scope="module")
 def rt(pg_uri, uploads_dir):
-    from udre import pg_embedded
-    from udre.engine import build_engine
-    from udre.gateway.postgres_adapter import PostgresSourceAdapter
+    from backend import pg_embedded
+    from backend.engine import build_engine
+    from backend.gateway.postgres_adapter import PostgresSourceAdapter
 
-    lab_uri = pg_embedded.ensure_database("udre_sync_lab")
+    lab_uri = pg_embedded.ensure_database("backend_sync_lab")
     lab_reset(lab_uri)
     e = build_engine(llm_providers=(None, None, None))
     e.runtime_store.reset_tenant(TENANT)
@@ -107,7 +107,7 @@ def coll(res, name):
 
 # ------------------------------------------------------------------ contract + ingress
 def test_contract_validation_signature_and_duplicates(rt):
-    assert json_schema()["$id"] == "udre.sync-event.v1"
+    assert json_schema()["$id"] == "backend.sync-event.v1"
     with pytest.raises(ValueError):
         SyncEvent.model_validate(event(window_end=T0.isoformat()))
     bad = event()
@@ -164,7 +164,7 @@ def test_dependency_outside_changed_collections(rt):
 
 def test_schema_update_rebuilds_knowledge_and_marks_stale(rt):
     e = rt["e"]
-    from udre.contracts.models import NodeType, VerificationStatus
+    from backend.contracts.models import NodeType, VerificationStatus
 
     before = e.kg.source_version("sync_lab", TENANT)
     write(rt, "ALTER TABLE lab.customers ADD COLUMN segment VARCHAR(20) DEFAULT 'SMB'")
@@ -224,7 +224,7 @@ def test_deleted_records_cdc_visibility_and_tombstones(rt):
     first = [r for r in e.consumer.drain() if r["event_id"] == ev["event_id"]][-1]
     assert first["event"] == "sync_event_deferred" and "still present" in first["error"]  # delete not yet visible
     write(rt, "DELETE FROM lab.payments WHERE payment_id = 'P0059'")
-    e.runtime_store._exec("UPDATE udre_runtime.sync_events SET next_attempt_at = now() WHERE event_id = %s", (ev["event_id"],))
+    e.runtime_store._exec("UPDATE backend_runtime.sync_events SET next_attempt_at = now() WHERE event_id = %s", (ev["event_id"],))
     res = [r for r in e.consumer.drain() if r["event_id"] == ev["event_id"]][-1]
     c = coll(res, "lab.payments")
     assert res["event"] == "sync_event_processed" and c["method"] == "cdc_keys" and c["deleted_rows"] == 1
@@ -243,7 +243,7 @@ def test_visibility_expected_changes_and_sync_failure(rt):
     assert submit(rt, ev)["status"] == "accepted"
     assert [r for r in e.consumer.drain() if r["event_id"] == ev["event_id"]][-1]["event"] == "sync_event_deferred"
     write(rt, "UPDATE lab.invoices SET updated_at = %s WHERE invoice_id = 'I0031'", (at(142),))
-    e.runtime_store._exec("UPDATE udre_runtime.sync_events SET next_attempt_at = now() WHERE event_id = %s", (ev["event_id"],))
+    e.runtime_store._exec("UPDATE backend_runtime.sync_events SET next_attempt_at = now() WHERE event_id = %s", (ev["event_id"],))
     assert [r for r in e.consumer.drain() if r["event_id"] == ev["event_id"]][-1]["event"] == "sync_event_processed"
     failed = process(rt, event(sequence=1301, data_version="v1301", event_type="database.sync.failed", status="failed",
                                collections=[{"name": "lab.invoices", "status": "failed", "error": "upstream timeout"}]))
@@ -259,7 +259,7 @@ def test_restart_safe_lease_recovery(rt):
     claimed = e.runtime_store.claim_next()
     assert claimed["event_id"] == ev["event_id"]  # simulated worker crash: never finished
     assert e.runtime_store.claim_next() is None  # same source is blocked while the lease is live
-    e.runtime_store._exec("UPDATE udre_runtime.sync_events SET lease_until = now() - interval '1 second' WHERE event_id = %s",
+    e.runtime_store._exec("UPDATE backend_runtime.sync_events SET lease_until = now() - interval '1 second' WHERE event_id = %s",
                           (ev["event_id"],))
     assert [r for r in e.consumer.drain() if r["event_id"] == ev["event_id"]][-1]["event"] == "sync_event_processed"
     assert e.runtime_store.get_event(ev["event_id"])["attempts"] == 2
@@ -302,7 +302,7 @@ def test_stale_context_and_answer_invalidation(rt):
 
 # ------------------------------------------------------------------ Stage B policy
 def test_stage_b_is_policy_gated(rt):
-    from udre.runtime.policy import WatchedAnalysis
+    from backend.runtime.policy import WatchedAnalysis
 
     e = rt["e"]
     write(rt, "UPDATE lab.invoices SET updated_at = %s WHERE invoice_id = 'I0050'", (at(190),))
@@ -324,8 +324,8 @@ def test_stage_b_is_policy_gated(rt):
 
 # ------------------------------------------------------------------ adjudication with a scripted GPT stand-in
 def _cand(agent, value, sql, err=False):
-    from udre.agents.planner import QueryPlan
-    from udre.contracts.models import AgentReasoningCandidate, ValidationFinding
+    from backend.agents.planner import QueryPlan
+    from backend.contracts.models import AgentReasoningCandidate, ValidationFinding
 
     plan = QueryPlan(source_id="sync_lab", primary_collection="lab.invoices", aggregation="COUNT")
     return AgentReasoningCandidate(agent_name=agent, interpreted_question="count", query_or_plan=sql, source_id="sync_lab",
@@ -336,9 +336,9 @@ def _cand(agent, value, sql, err=False):
 
 
 def test_llm_adjudicator_targeted_verification_and_guards(rt):
-    from udre.contracts.models import AdjudicationDecision
-    from udre.llm.scripted import ScriptedProvider, last_tool_result, tool
-    from udre.verification.llm_adjudicator import LLMAdjudicator
+    from backend.contracts.models import AdjudicationDecision
+    from backend.llm.scripted import ScriptedProvider, last_tool_result, tool
+    from backend.verification.llm_adjudicator import LLMAdjudicator
 
     e, ctx = rt["e"], AccessContext(tenant_id=TENANT, user_id="analyst")
     a = _cand("Explorer", 40, "SELECT COUNT(*) AS value FROM lab.invoices WHERE status = 'OPEN'")
@@ -372,9 +372,9 @@ def test_llm_adjudicator_targeted_verification_and_guards(rt):
 
 
 def test_dual_path_disagreement_reaches_adjudicator_in_workflow(rt):
-    from udre.engine import build_engine
-    from udre.gateway.postgres_adapter import PostgresSourceAdapter
-    from udre.llm.scripted import ScriptedProvider, tool
+    from backend.engine import build_engine
+    from backend.gateway.postgres_adapter import PostgresSourceAdapter
+    from backend.llm.scripted import ScriptedProvider, tool
 
     def exp(system, messages, tools):
         if sum(1 for m in messages if m["role"] == "assistant") == 0:
@@ -448,8 +448,8 @@ class FakeDaytona:
 
 
 def test_sandbox_daytona_transfer_integrity_artifacts_and_failures(tmp_path):
-    from udre.tools.files import FileStore
-    from udre.tools.sandbox import SandboxManager
+    from backend.tools.files import FileStore
+    from backend.tools.sandbox import SandboxManager
 
     fs = FileStore(tmp_path)
     rec = fs.save_bytes("t", "u", "ledger.csv", b"x,y\n1,2\n")
@@ -461,7 +461,7 @@ def test_sandbox_daytona_transfer_integrity_artifacts_and_failures(tmp_path):
     corrupt = SandboxManager(fs, provider="daytona", daytona_client=FakeDaytona(corrupt=True))
     with pytest.raises(Exception, match="integrity check failed"):
         corrupt.run("run2", "Hercules", "print(1)", [rec], "t", "u")
-    from udre.skills.tools import ToolBox
+    from backend.skills.tools import ToolBox
 
     tb = ToolBox(None, None, None, str(tmp_path), sandbox=SandboxManager(fs, provider="daytona", daytona_client=FakeDaytona(fail_create=True)),
                  files=fs)
@@ -470,8 +470,8 @@ def test_sandbox_daytona_transfer_integrity_artifacts_and_failures(tmp_path):
 
 
 def test_local_sandbox_real_computation_and_separate_agents(tmp_path):
-    from udre.tools.files import FileStore
-    from udre.tools.sandbox import SandboxManager
+    from backend.tools.files import FileStore
+    from backend.tools.sandbox import SandboxManager
 
     fs = FileStore(tmp_path)
     rec = fs.save_bytes("t", "u", "sales.csv", b"amount\n10\n20\n30\n")
@@ -489,7 +489,7 @@ def test_local_sandbox_real_computation_and_separate_agents(tmp_path):
 def test_api_streams_real_events_and_analyses_uploaded_file(rt):
     from fastapi.testclient import TestClient
 
-    from udre.api import app as api
+    from backend.api import app as api
 
     e = rt["e"]
     original = api.engine
@@ -519,9 +519,9 @@ def test_api_streams_real_events_and_analyses_uploaded_file(rt):
         assert c.get(art["download_url"], headers={"X-Tenant-Id": "other", "X-User-Id": "x"}).status_code == 404
         assert e.kg.nodes(source_id=ws["source_id"], tenant=TENANT) == []  # uploads never touch the tenant ontology
         body = json.dumps(event(sequence=1800, data_version="v1800")).encode()
-        res = c.post("/events/sync?process=true", content=body, headers={"X-UDRE-Signature": sign(body, SECRET)}).json()
+        res = c.post("/events/sync?process=true", content=body, headers={"X-Backend-Signature": sign(body, SECRET)}).json()
         assert res["status"] == "accepted" and res["processing"]
-        assert c.post("/events/sync", content=body, headers={"X-UDRE-Signature": "bad"}).status_code == 401
+        assert c.post("/events/sync", content=body, headers={"X-Backend-Signature": "bad"}).status_code == 401
         src = next(s for s in c.get("/runtime/sources", headers=h).json() if s["source_id"] == "sync_lab")
         assert src["sync_status"] == "ok" and src["data_version"]
         assert c.get("/runtime/investigations", headers=h).json()
@@ -546,7 +546,7 @@ def test_source_scoping_hides_ingestion_tables_and_exposes_hubspot_collections(r
 
 
 def test_change_through_one_source_flags_answers_of_a_source_on_the_same_database(rt):
-    from udre.gateway.postgres_adapter import PostgresSourceAdapter
+    from backend.gateway.postgres_adapter import PostgresSourceAdapter
 
     e = rt["e"]
     e.gateway.register(PostgresSourceAdapter("sync_lab_view", rt["lab"], include_collections=["lab.invoices"]), tenants=[TENANT])

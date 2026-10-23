@@ -1,1 +1,1 @@
-"""Publishing of sync events to UDRE (udre.sync-event.v1)."""
+"""Publishing of sync events to the backend (backend.sync-event.v1)."""

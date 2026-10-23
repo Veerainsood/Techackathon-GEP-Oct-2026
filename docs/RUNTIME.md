@@ -1,6 +1,6 @@
-# UDRE Runtime: event-driven agent pipeline and frontend
+# Backend Runtime: event-driven agent pipeline and frontend
 
-This guide covers the runtime layer that sits between the existing ingestion/synchronization service and the reasoning engine. It also covers the React frontend's live mode. Nothing in the ingestion service was recreated; UDRE only consumes the events that service publishes.
+This guide covers the runtime layer that sits between the existing ingestion/synchronization service and the reasoning engine. It also covers the React frontend's live mode. Nothing in the ingestion service was recreated; the backend only consumes the events that service publishes.
 
 ## Start it locally
 
@@ -15,11 +15,11 @@ powershell -ExecutionPolicy Bypass -File scripts\start_dev.ps1
 Or start the pieces by hand:
 
 ```powershell
-python -m uvicorn udre.api.app:app --port 8000      # API + background event worker
+python -m uvicorn backend.api.app:app --port 8000      # API + background event worker
 cd frontend; npm install; npm run dev                # http://localhost:5173 (live mode)
 ```
 
-The UI itself is unchanged. Live mode feeds the original screens from the backend through `frontend/src/live/adapter.ts`; `VITE_UDRE_MODE=demo` brings back the scripted mockup data.
+The UI itself is unchanged. Live mode feeds the original screens from the backend through `frontend/src/live/adapter.ts`; `VITE_BACKEND_MODE=demo` brings back the scripted mockup data.
 
 | Screen | Live data |
 |---|---|
@@ -35,11 +35,11 @@ Approvals and Settings keep their original content: the backend has no action-ex
 
 ### HubSpot ingestion (`knowledge-ingestion/`)
 
-`scripts/start_dev.ps1` also starts the ingestion service on port 8001 when `knowledge-ingestion/.env` exists. It polls HubSpot, writes `hubspot.contacts` and `pipeline_crm.prospect_accounts` into the warehouse database, and publishes signed sync events to `UDRE_EVENTS_URL` (http://localhost:8000). Both `.env` files need the same `UDRE_EVENT_SECRET`. UDRE exposes these tables as the `hubspot` source, and `finance_pg` hides the `hubspot` and `public` schemas, which hold the service's own bookkeeping tables, including raw HubSpot payloads.
+`scripts/start_dev.ps1` also starts the ingestion service on port 8001 when `knowledge-ingestion/.env` exists. It polls HubSpot, writes `hubspot.contacts` and `pipeline_crm.prospect_accounts` into the warehouse database, and publishes signed sync events to `BACKEND_EVENTS_URL` (http://localhost:8000). Both `.env` files need the same `BACKEND_EVENT_SECRET`. The backend exposes these tables as the `hubspot` source, and `finance_pg` hides the `hubspot` and `public` schemas, which hold the service's own bookkeeping tables, including raw HubSpot payloads.
 
 How the two systems stay consistent:
 
-* **Same customers.** The HubSpot test portal's companies are real customers in the synthetic warehouse: Contoso Logistics, Woodgrove Bank, Northwind Traders, Adatum Systems and Litware Pvt Ltd are customer groups with contracts and invoices; Fabrikam Retail (an opportunity in HubSpot) is a prospect with open deals only. The generator renames existing groups after its random draws, so every amount, date and ID, and every invariant, is unchanged (`HUBSPOT_GROUP_NAMES` in `udre/synthetic/generator.py`).
+* **Same customers.** The HubSpot test portal's companies are real customers in the synthetic warehouse: Contoso Logistics, Woodgrove Bank, Northwind Traders, Adatum Systems and Litware Pvt Ltd are customer groups with contracts and invoices; Fabrikam Retail (an opportunity in HubSpot) is a prospect with open deals only. The generator renames existing groups after its random draws, so every amount, date and ID, and every invariant, is unchanged (`HUBSPOT_GROUP_NAMES` in `backend/synthetic/generator.py`).
 * **Linking, not duplicating.** The loader links each HubSpot company, and each contact's company, to the CRM account that already represents it. Matching uses the account name, the customer group name or a verified counterparty alias, ignoring legal suffixes. Links are stored in `hubspot.company_links` and `hubspot.contacts.crm_account_id`. Only unmatched companies become new prospects.
 * **One owner per field.** HubSpot owns account names and lifecycle; finance owns invoices, contracts and amounts. `is_existing_customer` is true when HubSpot has a customer-stage contact or the customer group has a signed contract, so the two never disagree about who is a customer.
 * **Events name what changed.** Sync events list changed contacts by HubSpot ID, and changed accounts by their CRM account ID: created, renamed or customer flag flipped.
@@ -48,8 +48,8 @@ How the two systems stay consistent:
 
 ```mermaid
 flowchart LR
-  ING[Ingestion service<br/>existing] -- "udre.sync-event.v1 + HMAC" --> EV[POST /events/sync]
-  EV --> ST[(udre_runtime.sync_events<br/>dedupe by event_id)]
+  ING[Ingestion service<br/>existing] -- "backend.sync-event.v1 + HMAC" --> EV[POST /events/sync]
+  EV --> ST[(backend_runtime.sync_events<br/>dedupe by event_id)]
   ST --> W[Event worker<br/>lease per source, ordered by sequence]
   W --> A[Stage A deterministic<br/>window/CDC scoped queries]
   A --> K[Knowledge refresh<br/>profiles only or full schema rebuild]
@@ -64,11 +64,11 @@ flowchart LR
 
 ## Event contract (proposal)
 
-The contract is a **proposal to agree with the ingestion engineer**. UDRE does not assume the producer already emits it. JSON Schema: [`docs/events/sync-event.v1.schema.json`](events/sync-event.v1.schema.json). Model: `udre/events/contracts.py`.
+The contract is a **proposal to agree with the ingestion engineer**. The backend does not assume the producer already emits it. JSON Schema: [`docs/events/sync-event.v1.schema.json`](events/sync-event.v1.schema.json). Model: `backend/events/contracts.py`.
 
 ```json
 {
-  "schema": "udre.sync-event.v1",
+  "schema": "backend.sync-event.v1",
   "event_id": "sync-2026-10-23T10:05:00Z-finance_pg-42",
   "event_type": "database.sync.completed",
   "tenant_id": "default",
@@ -92,8 +92,8 @@ Producer obligations:
 * Publish only after the window's transactions are committed and visible to readers.
 * Windows are half-open (`[start, end)`), and consecutive windows share a boundary.
 * `sequence` (or the digits of `data_version`) increases monotonically for each tenant, source and database.
-* Sign the raw body: `X-UDRE-Signature: hex(HMAC-SHA256(UDRE_EVENT_SECRET, body))`. Unsigned events are rejected with HTTP 401 unless `UDRE_EVENT_ALLOW_UNSIGNED=1`.
-* CDC keys (`changes[]`) are optional but preferred. With keys, UDRE queries exactly those rows. Without them it falls back to the timestamp window, which can detect inserts, updates and tombstoned deletes but cannot reconstruct before-values.
+* Sign the raw body: `X-Backend-Signature: hex(HMAC-SHA256(BACKEND_EVENT_SECRET, body))`. Unsigned events are rejected with HTTP 401 unless `BACKEND_EVENT_ALLOW_UNSIGNED=1`.
+* CDC keys (`changes[]`) are optional but preferred. With keys, the backend queries exactly those rows. Without them it falls back to the timestamp window, which can detect inserts, updates and tombstoned deletes but cannot reconstruct before-values.
 
 Event types are `database.sync.completed` (status `completed` or `partial`, with per-collection status), `database.sync.failed`, and `knowledge.version.published` (forces a knowledge refresh).
 
@@ -101,8 +101,8 @@ Event types are `database.sync.completed` (status `completed` or `partial`, with
 
 | Concern | Behaviour | Code |
 |---|---|---|
-| Authenticity / validation | HMAC check, then Pydantic validation; invalid bodies get 400 and nothing is stored | `udre/events/consumer.py` |
-| Duplicates | `event_id` primary key; a duplicate is acknowledged as `duplicate` and not reprocessed | `udre/events/store.py` |
+| Authenticity / validation | HMAC check, then Pydantic validation; invalid bodies get 400 and nothing is stored | `backend/events/consumer.py` |
+| Duplicates | `event_id` primary key; a duplicate is acknowledged as `duplicate` and not reprocessed | `backend/events/store.py` |
 | Ordering / concurrency | Claims the lowest `sequence` per source with `FOR UPDATE SKIP LOCKED`. Only one live lease per source; expired leases are reclaimed after a crash or restart | `RuntimeStore.claim_next` |
 | Out-of-order / overlapping windows | Watermarks are stored as merged interval sets, so an older or overlapping window only fills its gap. The source version never regresses | `RuntimeStore.cover`, `advance_version` |
 | Gaps | Reported in the investigation (`gaps`) until a later event covers them | `cover()` |
@@ -115,9 +115,9 @@ Event types are `database.sync.completed` (status `completed` or `partial`, with
 
 **Stage A (always, deterministic, no LLM):** scoped queries per changed collection (parameterized `IN` on the CDC keys, or the bounded timestamp window); schema drift against the knowledge graph; impact through *verified* `REFERENCES` edges (affected parents, dependent children with counts) and `DERIVED_FROM` reconciliation rules; affected metrics. It never runs a full-database scan.
 
-**Stage B (policy-gated):** runs agent analysis only when a trigger fires: a watched analysis covering a changed collection, a change-volume anomaly (`anomaly_ratio`, `anomaly_min_rows`), or unresolved relationships (opt-in). Even then it runs only if `auto_analysis` is on (off by default, `UDRE_AUTO_ANALYSIS=1`). Ordinary record updates never spend Opus calls. Stage B answers are stored in the investigation record (`stage_b`); they are never promoted into the ontology as verified facts.
+**Stage B (policy-gated):** runs agent analysis only when a trigger fires: a watched analysis covering a changed collection, a change-volume anomaly (`anomaly_ratio`, `anomaly_min_rows`), or unresolved relationships (opt-in). Even then it runs only if `auto_analysis` is on (off by default, `BACKEND_AUTO_ANALYSIS=1`). Ordinary record updates never spend Opus calls. Stage B answers are stored in the investigation record (`stage_b`); they are never promoted into the ontology as verified facts.
 
-Example `UDRE_RUNTIME_POLICY` file:
+Example `BACKEND_RUNTIME_POLICY` file:
 
 ```json
 {
@@ -143,7 +143,7 @@ Example `UDRE_RUNTIME_POLICY` file:
 Each question resolves a **version manifest**: for every source, its `data_version`, `sequence`, last sync time, sync status, schema version, knowledge version and consistency mode, plus a digest. The manifest is streamed to the UI and given to both agents.
 
 * PostgreSQL sources: one exported snapshot (`pg_export_snapshot`) is held for the run, and every agent query uses `SET TRANSACTION SNAPSHOT`. Both agents and the verification queries therefore read the same data even while a sync commits mid-question.
-* Other sources (DuckDB files, Mongo, REST): `detect_only`. Versions are compared at the end; if they changed, the run is retried once (`UDRE_RETRY_ON_VERSION_CHANGE`). If it still differs, the answer carries `changed_during_run`.
+* Other sources (DuckDB files, Mongo, REST): `detect_only`. Versions are compared at the end; if they changed, the run is retried once (`BACKEND_RETRY_ON_VERSION_CHANGE`). If it still differs, the answer carries `changed_during_run`.
 * Statuses: `consistent`, `snapshot_consistent_but_outdated` (a newer version landed after the snapshot was taken), and `changed_during_run`.
 
 ## Models (Microsoft Foundry)
@@ -152,21 +152,21 @@ Routing policy: the two investigating agents do the important work, so both use 
 
 | Role | Default deployment | Route | Override |
 |---|---|---|---|
-| Explorer | `claude-opus-4-6` | `/anthropic/v1/messages` | `UDRE_EXPLORER_LLM_MODEL` |
-| Hercules | `claude-opus-4-6` | `/anthropic/v1/messages` | `UDRE_HERCULES_LLM_MODEL` |
-| Structured output (adjudicator verdict) | `gpt-5.6-sol` | `/openai/v1/chat/completions` | `UDRE_STRUCTURED_LLM_MODEL` (or `UDRE_ADJUDICATOR_LLM_MODEL`) |
-| Light tasks | `claude-sonnet-5` | `/anthropic/v1/messages` | `UDRE_LIGHT_LLM_MODEL` |
+| Explorer | `claude-opus-4-6` | `/anthropic/v1/messages` | `BACKEND_EXPLORER_LLM_MODEL` |
+| Hercules | `claude-opus-4-6` | `/anthropic/v1/messages` | `BACKEND_HERCULES_LLM_MODEL` |
+| Structured output (adjudicator verdict) | `gpt-5.6-sol` | `/openai/v1/chat/completions` | `BACKEND_STRUCTURED_LLM_MODEL` (or `BACKEND_ADJUDICATOR_LLM_MODEL`) |
+| Light tasks | `claude-sonnet-5` | `/anthropic/v1/messages` | `BACKEND_LIGHT_LLM_MODEL` |
 
 The light role is configured, but no pipeline step calls an LLM for lightweight work yet: question parsing, Stage A and summaries are deterministic. Both agents now run on the same model, so their independence comes from different strategies, contexts and prompts (tool-driven exploration versus compressed full context) rather than different model families.
 
-The endpoint and key come from `UDRE_FOUNDRY_ENDPOINT` and `UDRE_FOUNDRY_API_KEY`. Any `UDRE_<AGENT>_LLM_<NAME>` setting (provider, base URL, key, timeout, retries, max tokens, prices) overrides the global value. System prompts are in `udre/agents/prompts.py`. `python scripts/probe_foundry.py` checks the deployments without printing secrets. `GET /runtime/models` shows what is active.
+The endpoint and key come from `BACKEND_FOUNDRY_ENDPOINT` and `BACKEND_FOUNDRY_API_KEY`. Any `BACKEND_<AGENT>_LLM_<NAME>` setting (provider, base URL, key, timeout, retries, max tokens, prices) overrides the global value. System prompts are in `backend/agents/prompts.py`. `python scripts/probe_foundry.py` checks the deployments without printing secrets. `GET /runtime/models` shows what is active.
 
 The GPT adjudicator sees both candidates, the deterministic validator findings, the manifest and the consistency status. It may request **one** targeted read-only verification query (run through the same SQL guard and snapshot) before its final verdict. Guards: it can't select a candidate that has blocking validator errors or no result; question ambiguity stays unresolved; final values always come from an executed candidate, never from model text.
 
 ## Sandboxes, files and artifacts
 
 * `POST /files` (multipart) stores files with a sha256 hash, an extension allow-list and a size limit, scoped to tenant and user. `GET /files/{id}/download` re-verifies the hash on read.
-* `run_python` is offered to the agents only when `UDRE_SANDBOX` is `local` or `daytona`. A sandbox is created lazily, one per run and agent, the first time an agent calls the tool. Files are uploaded explicitly and their hash is verified inside the sandbox; nothing is assumed to be present. Files written to `out/` become artifacts. Sandboxes are deleted when the run finishes.
+* `run_python` is offered to the agents only when `BACKEND_SANDBOX` is `local` or `daytona`. A sandbox is created lazily, one per run and agent, the first time an agent calls the tool. Files are uploaded explicitly and their hash is verified inside the sandbox; nothing is assumed to be present. Files written to `out/` become artifacts. Sandboxes are deleted when the run finishes.
 * `local` uses a subprocess with a stripped environment. It is **not a security boundary** and is for development only. `daytona` uses the Daytona SDK (`DAYTONA_API_KEY`).
 * Exports and sandbox outputs are registered as artifacts and returned with the answer; `GET /artifacts/{id}/download` serves them.
 
@@ -190,13 +190,13 @@ Identity is taken from the `X-Tenant-Id` / `X-User-Id` headers, as in the existi
 
 ```powershell
 python -m pytest tests -q                                   # offline: LLM and sandbox mocked/disabled
-$env:UDRE_LIVE_SMOKE="1"; python -m pytest tests/test_live_smoke.py -q   # real Foundry calls (costs tokens)
+$env:BACKEND_LIVE_SMOKE="1"; python -m pytest tests/test_live_smoke.py -q   # real Foundry calls (costs tokens)
 cd frontend; npm run build                                  # TypeScript type check + production build
 ```
 
 Stop a running dev backend before running the suite. Its event worker polls the same runtime store and can claim the test events.
 
-`tests/test_runtime.py` runs against a real Postgres scratch database (`udre_sync_lab`). It covers:
+`tests/test_runtime.py` runs against a real Postgres scratch database (`backend_sync_lab`). It covers:
 
 * contract, signature and duplicates;
 * single- and multi-collection events, and data-only versus schema changes;
@@ -234,7 +234,7 @@ Stop a running dev backend before running the suite. Its event worker polls the 
 
 * **Daytona:** implemented against the SDK and tested with a fake client only. There was no `DAYTONA_API_KEY`, so it has never run against real Daytona.
 * **Consistent snapshots:** PostgreSQL only. DuckDB, Mongo and REST use detect-and-retry.
-* **Cost reporting:** shows $0 unless `UDRE_*_LLM_*_COST_PER_MTOK` prices are configured. Token counts are real.
+* **Cost reporting:** shows $0 unless `BACKEND_*_LLM_*_COST_PER_MTOK` prices are configured. Token counts are real.
 * **Streaming:** events stream; model tokens do not.
 * **Workspace sessions:** held in memory and lost on API restart. Their files persist in the file store.
 * **Event contract:** a proposal not yet agreed with the ingestion engineer.

@@ -19,9 +19,9 @@ sys.path.insert(0, str(ROOT))
 
 import duckdb  # noqa: E402
 
-from udre import pg_embedded  # noqa: E402
-from udre.synthetic.generator import SyntheticFinanceGenerator  # noqa: E402
-from udre.synthetic.loader import DATASET_DB, export_files, get_postgres_uri  # noqa: E402
+from backend import pg_embedded  # noqa: E402
+from backend.synthetic.generator import SyntheticFinanceGenerator  # noqa: E402
+from backend.synthetic.loader import DATASET_DB, export_files, get_postgres_uri  # noqa: E402
 
 
 def main() -> None:

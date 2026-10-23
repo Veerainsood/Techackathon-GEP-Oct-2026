@@ -1,9 +1,9 @@
-// Live client for the UDRE FastAPI backend. Every UI element in live mode is driven by these calls.
-export const API_BASE: string = (import.meta.env.VITE_UDRE_API as string | undefined) ?? 'http://localhost:8000'
+// Live client for the backend FastAPI backend. Every UI element in live mode is driven by these calls.
+export const API_BASE: string = (import.meta.env.VITE_BACKEND_API as string | undefined) ?? 'http://localhost:8000'
 
 export const identity = {
-  tenant: localStorage.getItem('udre.tenant') ?? ((import.meta.env.VITE_UDRE_TENANT as string | undefined) ?? 'default'),
-  user: localStorage.getItem('udre.user') ?? ((import.meta.env.VITE_UDRE_USER as string | undefined) ?? 'analyst'),
+  tenant: localStorage.getItem('backend.tenant') ?? ((import.meta.env.VITE_BACKEND_TENANT as string | undefined) ?? 'default'),
+  user: localStorage.getItem('backend.user') ?? ((import.meta.env.VITE_BACKEND_USER as string | undefined) ?? 'analyst'),
 }
 
 function headers(extra: Record<string, string> = {}): Record<string, string> {

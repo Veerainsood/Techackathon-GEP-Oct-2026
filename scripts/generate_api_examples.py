@@ -11,7 +11,7 @@ sys.path.insert(0, str(ROOT))
 
 from fastapi.testclient import TestClient  # noqa: E402
 
-from udre.api.app import app  # noqa: E402
+from backend.api.app import app  # noqa: E402
 
 
 def trim(obj, depth=0):
@@ -39,7 +39,7 @@ def main() -> None:
     ]
     out = ["# API examples", "", "Captured from real calls against the running engine "
            "(`python scripts/generate_api_examples.py`). Long lists are truncated.", "",
-           "Start the server with `uvicorn udre.api.app:app --port 8000`. Identity headers: `X-Tenant-Id`, `X-User-Id`.", ""]
+           "Start the server with `uvicorn backend.api.app:app --port 8000`. Identity headers: `X-Tenant-Id`, `X-User-Id`.", ""]
     for method, path, body, headers in calls:
         r = c.request(method, path, json=body, headers=headers)
         out += [f"## {method} {path}", ""]

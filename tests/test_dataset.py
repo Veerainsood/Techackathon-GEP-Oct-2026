@@ -3,9 +3,9 @@ import hashlib
 import psycopg2
 import pytest
 
-from udre.synthetic.generator import SyntheticFinanceGenerator
-from udre.synthetic.ground_truth import FINANCIAL_INVARIANTS, build_benchmark
-from udre.synthetic.schema_spec import SYNTHETIC_SCHEMAS, generate_postgresql_ddl, get_all_39_table_definitions
+from backend.synthetic.generator import SyntheticFinanceGenerator
+from backend.synthetic.ground_truth import FINANCIAL_INVARIANTS, build_benchmark
+from backend.synthetic.schema_spec import SYNTHETIC_SCHEMAS, generate_postgresql_ddl, get_all_39_table_definitions
 
 
 def _digest(frames):

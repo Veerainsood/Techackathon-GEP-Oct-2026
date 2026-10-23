@@ -1,7 +1,7 @@
 """HubSpot -> warehouse consistency: knowledge-ingestion's loader links HubSpot contacts and companies to the CRM accounts
 that already represent them and keeps the customer flag consistent with both HubSpot and finance data.
 
-Runs against an isolated copy of the synthetic warehouse (database ``udre_crm_sync_lab``); HubSpot is faked."""
+Runs against an isolated copy of the synthetic warehouse (database ``backend_crm_sync_lab``); HubSpot is faked."""
 
 import json
 import os
@@ -13,23 +13,23 @@ from unittest import mock
 import psycopg2
 import pytest
 
-from udre.events.contracts import SyncEvent
+from backend.events.contracts import SyncEvent
 
 ROOT = Path(__file__).resolve().parents[1]
 
 
 @pytest.fixture(scope="module")
 def lab(generator, tmp_path_factory):
-    from udre import pg_embedded
-    from udre.synthetic.loader import load_to_postgres
+    from backend import pg_embedded
+    from backend.synthetic.loader import load_to_postgres
 
-    uri = pg_embedded.ensure_database("udre_crm_sync_lab")
+    uri = pg_embedded.ensure_database("backend_crm_sync_lab")
     with psycopg2.connect(uri) as c, c.cursor() as cur:
         cur.execute("DROP SCHEMA IF EXISTS hubspot CASCADE")
     load_to_postgres(generator.frames, uri)
     url = uri.replace("postgresql://", "postgresql+psycopg://")
     # knowledge-ingestion reads its configuration at import time; point it at the lab database.
-    with mock.patch.dict(os.environ, {"DATABASE_URL": url, "HUBSPOT_PORTAL_ID": "test", "UDRE_EVENTS_URL": ""}):
+    with mock.patch.dict(os.environ, {"DATABASE_URL": url, "HUBSPOT_PORTAL_ID": "test", "BACKEND_EVENTS_URL": ""}):
         sys.path.insert(0, str(ROOT / "knowledge-ingestion"))
         from knowledge_ingestion.storage.warehouse import Warehouse
 
@@ -107,10 +107,10 @@ def test_company_object_links_by_legal_alias_and_hubspot_owns_the_name(lab):
     assert q(lab, "SELECT crm_account_name FROM pipeline_crm.prospect_accounts WHERE crm_account_id = %s", (contoso,)) == [("Contoso Logistics",)]
 
 
-def test_sync_event_names_crm_account_ids_and_matches_the_udre_contract(lab):
-    from knowledge_ingestion.config import UdreConfig, config
+def test_sync_event_names_crm_account_ids_and_matches_the_backend_contract(lab):
+    from knowledge_ingestion.config import BackendConfig, config
     from knowledge_ingestion.pipeline import hubspot_sync
-    from knowledge_ingestion.publish import udre_events
+    from knowledge_ingestion.publish import backend_events
     from knowledge_ingestion.storage import sql_store
 
     store = sql_store.SqlStore(f"sqlite:///{lab['tmp'] / 'store.db'}")
@@ -128,9 +128,9 @@ def test_sync_event_names_crm_account_ids_and_matches_the_udre_contract(lab):
         def search_modified_since(self, object_type, properties, modified_property, since_ms):
             return records[object_type]
 
-    cfg = replace(config, udre=UdreConfig(events_url="http://127.0.0.1:9", secret="s", tenant_id="default",
+    cfg = replace(config, backend=BackendConfig(events_url="http://127.0.0.1:9", secret="s", tenant_id="default",
                                           source_id="hubspot", database_id=None))
-    with mock.patch.object(hubspot_sync, "config", cfg), mock.patch.object(udre_events, "config", cfg), \
+    with mock.patch.object(hubspot_sync, "config", cfg), mock.patch.object(backend_events, "config", cfg), \
             mock.patch.object(hubspot_sync, "HubSpotClient", FakeClient), \
             mock.patch.object(hubspot_sync, "get_warehouse", lambda: lab["w"]):
         hubspot_sync.sync_hubspot(store)

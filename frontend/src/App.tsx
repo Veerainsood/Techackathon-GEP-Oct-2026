@@ -67,7 +67,7 @@ export default function App() {
   }, [toast])
 
   useEffect(() => {
-    if (LIVE && live.backend === 'down') setToast('Backend unreachable — start it with: uvicorn udre.api.app:app --port 8000')
+    if (LIVE && live.backend === 'down') setToast('Backend unreachable — start it with: uvicorn backend.api.app:app --port 8000')
   }, [live.backend])
 
   useEffect(() => {

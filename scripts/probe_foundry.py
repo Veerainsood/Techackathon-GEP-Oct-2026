@@ -1,6 +1,6 @@
 """Probe Microsoft Foundry deployments without printing credentials.
 
-Reads UDRE_FOUNDRY_ENDPOINT / UDRE_FOUNDRY_API_KEY (or the legacy free-form .env lines) and tries candidate
+Reads BACKEND_FOUNDRY_ENDPOINT / BACKEND_FOUNDRY_API_KEY (or the legacy free-form .env lines) and tries candidate
 deployment names on the Anthropic Messages route and the OpenAI-compatible route. Prints only status codes
 and error codes.  Usage: python scripts/probe_foundry.py [deployment ...]
 """
@@ -17,7 +17,7 @@ import httpx
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from udre.llm.config import foundry_credentials  # noqa: E402
+from backend.llm.config import foundry_credentials  # noqa: E402
 
 CANDIDATES = sys.argv[1:] or [
     "claude-opus-4-6", "claude-opus-4.6", "claude-opus-4-6-1", "claude-sonnet-5", "claude-sonnet-5-0", "claude-sonnet-4-5",

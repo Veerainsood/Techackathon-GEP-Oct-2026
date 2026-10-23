@@ -13,7 +13,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from udre.engine import build_engine  # noqa: E402
+from backend.engine import build_engine  # noqa: E402
 
 
 def main() -> None:

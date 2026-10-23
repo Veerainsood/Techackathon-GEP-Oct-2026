@@ -29,7 +29,7 @@ Test suite: 42 tests before Phase 2, **74 now, all passing**.
 
 ## Phase B: skill-driven knowledge
 
-Files: `udre/skills/database-investigation/SKILL.md`, `udre/skills/context_generator.py`, `udre/skills/registry.py`, `udre/skills/tools.py`, `udre/gateway/postgres_adapter.py` (indexes), `udre/contracts/models.py`, `udre/engine.py`, `udre/orchestration/workflow.py`.
+Files: `backend/skills/database-investigation/SKILL.md`, `backend/skills/context_generator.py`, `backend/skills/registry.py`, `backend/skills/tools.py`, `backend/gateway/postgres_adapter.py` (indexes), `backend/contracts/models.py`, `backend/engine.py`, `backend/orchestration/workflow.py`.
 
 * **Root skill:** `SKILL.md` covers the trust model, the investigation state to keep, the 11-step procedure and when to abstain.
 * **Generated references:** one Markdown file per collection, in three clearly separated sections: authoritative catalog metadata (types, nullability, keys, FK targets, indexes), observed profiles/values/samples/relationships/reconciliation rules, and inferred hypotheses. Plus value-profile, relationship, metric and verified-query files, and per-tenant `catalog.json` and `global-context.json`.
@@ -42,10 +42,10 @@ Files: `udre/skills/database-investigation/SKILL.md`, `udre/skills/context_gener
 
 ## Phase C: LLM agents
 
-Files: `udre/llm/{base,providers,config,scripted}.py`, `udre/agents/llm_agent.py`, `udre/agents/prompts.py`, `udre/agents/explorer.py`, `udre/agents/hercules.py`, `udre/agents/planner.py` (`plan_from_sql`, `structured_from_rows`), `udre/orchestration/workflow.py` (events), `udre/api/app.py` (`/ask/stream`).
+Files: `backend/llm/{base,providers,config,scripted}.py`, `backend/agents/llm_agent.py`, `backend/agents/prompts.py`, `backend/agents/explorer.py`, `backend/agents/hercules.py`, `backend/agents/planner.py` (`plan_from_sql`, `structured_from_rows`), `backend/orchestration/workflow.py` (events), `backend/api/app.py` (`/ask/stream`).
 
 * **Providers:** async httpx clients for the Anthropic Messages API (works with Azure AI Foundry `.../anthropic/v1/messages`) and OpenAI-compatible Chat Completions. Retries on 408/409/425/429/5xx/529 and timeouts, honouring `Retry-After`. Tracks token usage and cost (prices configurable). Keys are redacted from errors.
-* **Configuration:** all from the environment, per agent (see below). No model names or keys are hardcoded. `UDRE_REASONING_MODE=auto|offline|llm`.
+* **Configuration:** all from the environment, per agent (see below). No model names or keys are hardcoded. `BACKEND_REASONING_MODE=auto|offline|llm`.
 * **Agent loop:** the model chooses every tool call, and each call must carry a `gap` argument. Tool results carry bounded real rows (20), column names and observed types, row counts, verbatim errors and provenance. The final answer is a Pydantic-validated `CandidateSubmission`; invalid submissions, and SQL that fails when the system re-executes it, go back to the model for revision. The loop enforces turn and tool-call budgets (when exhausted, the model is forced to submit), emits events, and never trusts results the model claims: the system re-runs the SQL.
 * **Explorer:** gets the question, the full `SKILL.md`, a lightweight catalog and verified knowledge, with no preloaded global context (tested).
 * **Hercules:** gets a different prompt and strategy (plan from the global overview first, then verify) plus the compressed overview of all authorized collections, with an inclusion report covering included versus omitted collections and full versus rendered tokens. Hercules never receives Explorer's state; a test checks that Explorer's failed probe never appears in Hercules' requests.
@@ -55,7 +55,7 @@ Files: `udre/llm/{base,providers,config,scripted}.py`, `udre/agents/llm_agent.py
 
 ## Phase D: connectors and ingestion
 
-Files: `udre/ingestion/{base,snapshot,pipeline,intune,hubspot,mocks}.py`, `udre/ontology/cross_source.py`, `udre/ontology/builder.py` (relationship properties), `udre/domain_packs/{crm,device_management}.yaml`, `udre/gateway/registry.py` (`grant`/`revoke`), `udre/api/app.py` (`/connectors/*`, `/sources/{id}/sync`, `/webhooks/hubspot/{id}`).
+Files: `backend/ingestion/{base,snapshot,pipeline,intune,hubspot,mocks}.py`, `backend/ontology/cross_source.py`, `backend/ontology/builder.py` (relationship properties), `backend/domain_packs/{crm,device_management}.yaml`, `backend/gateway/registry.py` (`grant`/`revoke`), `backend/api/app.py` (`/connectors/*`, `/sources/{id}/sync`, `/webhooks/hubspot/{id}`).
 
 * **Lifecycle:** register → authenticate → discover → fetch/normalize (per object, checkpointed) → derived tables → profile + ontology → collection files + global context → cross-source candidates → queryable.
   * A failing object is recorded and skipped without advancing its checkpoint, and the next sync recovers it (tested).
@@ -63,7 +63,7 @@ Files: `udre/ingestion/{base,snapshot,pipeline,intune,hubspot,mocks}.py`, `udre/
 * **Snapshots:** DuckDB snapshot per tenant and source.
   * Nested JSON is flattened (`a__b`), arrays are kept as JSON, and column names are snake_case.
   * Records are upserted by stable id, and new properties add columns.
-  * Tombstones: `_udre_archived` mirrors the source flag; `_udre_present = false` when a full refresh stops returning a record.
+  * Tombstones: `_backend_archived` mirrors the source flag; `_backend_present = false` when a full refresh stops returning a record.
   * Every query result reports `provenance.mode = snapshot` and `synced_at`; Postgres and file sources report `live`.
 * **Intune (Microsoft Graph v1.0 only):**
   * Client-credentials token and `@odata.nextLink` paging; 429/503 handled with `Retry-After`.
@@ -87,7 +87,7 @@ Files: `udre/ingestion/{base,snapshot,pipeline,intune,hubspot,mocks}.py`, `udre/
 
 ## Phase E: reliability
 
-Files: `udre/verification/validators.py`, `udre/verification/adjudicator.py`, `udre/agents/planner.py`, `udre/orchestration/workflow.py`, `tests/test_reliability.py`.
+Files: `backend/verification/validators.py`, `backend/verification/adjudicator.py`, `backend/agents/planner.py`, `backend/orchestration/workflow.py`, `tests/test_reliability.py`.
 
 **Why the dual path lost to Hercules on `heldout2` (N08).** Explorer summed rep quota; Hercules summed deal weighted ARR, which was correct. Both passed every structural validator, so their evidence scores tied and the adjudicator abstained. No check compared each plan's physical bindings with the question.
 
@@ -147,11 +147,11 @@ Files: `udre/verification/validators.py`, `udre/verification/adjudicator.py`, `u
 
 | Integration | Variables | Permissions / scopes |
 |---|---|---|
-| LLM (Azure AI Foundry Anthropic) | `UDRE_LLM_BASE_URL=https://<resource>.services.ai.azure.com/anthropic/v1/messages`, `UDRE_LLM_API_KEY=<key>`, `UDRE_LLM_MODEL=<deployment name>`; optional `UDRE_EXPLORER_LLM_*` / `UDRE_HERCULES_LLM_*`, `UDRE_LLM_INPUT_COST_PER_MTOK`, `UDRE_LLM_OUTPUT_COST_PER_MTOK` | key for the Foundry resource |
-| Microsoft Intune | `UDRE_INTUNE_TENANT_ID`, `UDRE_INTUNE_CLIENT_ID`, `UDRE_INTUNE_CLIENT_SECRET` | Entra app (application permissions, admin consent): `DeviceManagementManagedDevices.Read.All`, `DeviceManagementConfiguration.Read.All`; Intune licence |
-| HubSpot | `UDRE_HUBSPOT_ACCESS_TOKEN` (private app) or `UDRE_HUBSPOT_CLIENT_ID` / `_CLIENT_SECRET` / `_REFRESH_TOKEN` | `crm.objects.companies.read`, `crm.objects.contacts.read`, `crm.objects.deals.read`, `crm.objects.line_items.read`, `e-commerce`, `crm.schemas.custom.read`, `crm.objects.custom.read` |
+| LLM (Azure AI Foundry Anthropic) | `BACKEND_LLM_BASE_URL=https://<resource>.services.ai.azure.com/anthropic/v1/messages`, `BACKEND_LLM_API_KEY=<key>`, `BACKEND_LLM_MODEL=<deployment name>`; optional `BACKEND_EXPLORER_LLM_*` / `BACKEND_HERCULES_LLM_*`, `BACKEND_LLM_INPUT_COST_PER_MTOK`, `BACKEND_LLM_OUTPUT_COST_PER_MTOK` | key for the Foundry resource |
+| Microsoft Intune | `BACKEND_INTUNE_TENANT_ID`, `BACKEND_INTUNE_CLIENT_ID`, `BACKEND_INTUNE_CLIENT_SECRET` | Entra app (application permissions, admin consent): `DeviceManagementManagedDevices.Read.All`, `DeviceManagementConfiguration.Read.All`; Intune licence |
+| HubSpot | `BACKEND_HUBSPOT_ACCESS_TOKEN` (private app) or `BACKEND_HUBSPOT_CLIENT_ID` / `_CLIENT_SECRET` / `_REFRESH_TOKEN` | `crm.objects.companies.read`, `crm.objects.contacts.read`, `crm.objects.deals.read`, `crm.objects.line_items.read`, `e-commerce`, `crm.schemas.custom.read`, `crm.objects.custom.read` |
 
-The current `.env` line (`Claude opus 4.6 urls = https://…`) is not in `KEY=value` form with a `UDRE_` prefix, so the engine ignores it. Put the variables above in `.env` and run `python scripts/run_benchmark.py --split heldout3 --out live_llm` to measure the LLM path. `scripts/run_phase2_demo.py --live` uses real HubSpot/Intune credentials.
+The current `.env` line (`Claude opus 4.6 urls = https://…`) is not in `KEY=value` form with a `BACKEND_` prefix, so the engine ignores it. Put the variables above in `.env` and run `python scripts/run_benchmark.py --split heldout3 --out live_llm` to measure the LLM path. `scripts/run_phase2_demo.py --live` uses real HubSpot/Intune credentials.
 
 ## Remaining limitations
 

@@ -38,8 +38,8 @@ class PollingConfig:
 
 
 @dataclass(frozen=True)
-class UdreConfig:
-    """Where to send udre.sync-event.v1 events. Publishing is off unless events_url is set."""
+class BackendConfig:
+    """Where to send backend.sync-event.v1 events. Publishing is off unless events_url is set."""
 
     events_url: str | None
     secret: str
@@ -57,7 +57,7 @@ class Config:
     hubspot: HubSpotConfig
     database_url: str
     polling: PollingConfig
-    udre: UdreConfig
+    backend: BackendConfig
 
 
 def _require(name: str) -> str:
@@ -91,17 +91,17 @@ def _load_polling() -> PollingConfig:
     return PollingConfig(enabled=enabled, interval_seconds=interval)
 
 
-def _load_udre() -> UdreConfig:
-    url = os.getenv("UDRE_EVENTS_URL", "").strip().rstrip("/") or None
-    secret = os.getenv("UDRE_EVENT_SECRET", "").strip()
+def _load_backend() -> BackendConfig:
+    url = os.getenv("BACKEND_EVENTS_URL", "").strip().rstrip("/") or None
+    secret = os.getenv("BACKEND_EVENT_SECRET", "").strip()
     if url is not None and not secret:
-        raise ConfigError("UDRE_EVENT_SECRET is required when UDRE_EVENTS_URL is set (must match the UDRE service)")
-    return UdreConfig(
+        raise ConfigError("BACKEND_EVENT_SECRET is required when BACKEND_EVENTS_URL is set (must match the backend service)")
+    return BackendConfig(
         events_url=url,
         secret=secret,
-        tenant_id=os.getenv("UDRE_TENANT_ID", "default").strip() or "default",
-        source_id=os.getenv("UDRE_SOURCE_ID", "hubspot").strip() or "hubspot",
-        database_id=os.getenv("UDRE_DATABASE_ID", "").strip() or None,
+        tenant_id=os.getenv("BACKEND_TENANT_ID", "default").strip() or "default",
+        source_id=os.getenv("BACKEND_SOURCE_ID", "hubspot").strip() or "hubspot",
+        database_id=os.getenv("BACKEND_DATABASE_ID", "").strip() or None,
     )
 
 
@@ -116,7 +116,7 @@ def load_config() -> Config:
         ),
         database_url=database_url,
         polling=_load_polling(),
-        udre=_load_udre(),
+        backend=_load_backend(),
     )
 
 

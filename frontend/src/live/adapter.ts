@@ -15,7 +15,7 @@ import {
   type SyncEventRow,
 } from './api'
 
-export const LIVE = ((import.meta.env.VITE_UDRE_MODE as string | undefined) ?? 'live') !== 'demo'
+export const LIVE = ((import.meta.env.VITE_BACKEND_MODE as string | undefined) ?? 'live') !== 'demo'
 
 const PALETTE = ['bg-blue-600', 'bg-indigo-600', 'bg-orange-500', 'bg-brand', 'bg-violet-600', 'bg-teal-600', 'bg-sky-600']
 const TYPE_LABEL: Record<string, string> = {

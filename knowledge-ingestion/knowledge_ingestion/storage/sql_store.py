@@ -85,8 +85,8 @@ sync_state = Table(
 )
 
 
-udre_outbox = Table(
-    "udre_outbox",
+backend_outbox = Table(
+    "backend_outbox",
     metadata,
     Column("id", PRIMARY_KEY_TYPE, primary_key=True, autoincrement=True),
     Column("event_id", Unicode(200), nullable=False, unique=True),
@@ -99,7 +99,7 @@ udre_outbox = Table(
     Column("rejected_at", TIMESTAMP_TYPE, nullable=True),
     Column("attempts", Integer, nullable=False, default=0),
     Column("last_error", UnicodeText, nullable=True),
-    Index("udre_outbox_pending", "source_system", "delivered_at", "rejected_at"),
+    Index("backend_outbox_pending", "source_system", "delivered_at", "rejected_at"),
 )
 
 
@@ -132,7 +132,7 @@ def _insert_outbox(conn: Any, source_system: str, events: list[OutboxEvent]) -> 
         return
     now = _utcnow()
     conn.execute(
-        insert(udre_outbox),
+        insert(backend_outbox),
         [
             {
                 "event_id": event.event_id,
@@ -234,19 +234,19 @@ class SqlStore:
     def last_outbox_window_end(self, source_system: str) -> datetime | None:
         with self._engine.connect() as conn:
             value = conn.execute(
-                select(func.max(udre_outbox.c.window_end)).where(udre_outbox.c.source_system == source_system)
+                select(func.max(backend_outbox.c.window_end)).where(backend_outbox.c.source_system == source_system)
             ).scalar()
         return _as_utc_aware(value)
 
     def pending_outbox(self, source_system: str, limit: int) -> list[dict[str, Any]]:
         stmt = (
-            select(udre_outbox.c.event_id, udre_outbox.c.body)
+            select(backend_outbox.c.event_id, backend_outbox.c.body)
             .where(
-                udre_outbox.c.source_system == source_system,
-                udre_outbox.c.delivered_at.is_(None),
-                udre_outbox.c.rejected_at.is_(None),
+                backend_outbox.c.source_system == source_system,
+                backend_outbox.c.delivered_at.is_(None),
+                backend_outbox.c.rejected_at.is_(None),
             )
-            .order_by(udre_outbox.c.id)
+            .order_by(backend_outbox.c.id)
             .limit(limit)
         )
         with self._engine.connect() as conn:
@@ -255,17 +255,17 @@ class SqlStore:
     def mark_outbox_delivered(self, event_id: str) -> None:
         with self._engine.begin() as conn:
             conn.execute(
-                update(udre_outbox)
-                .where(udre_outbox.c.event_id == event_id)
-                .values(delivered_at=_utcnow(), attempts=udre_outbox.c.attempts + 1, last_error=None)
+                update(backend_outbox)
+                .where(backend_outbox.c.event_id == event_id)
+                .values(delivered_at=_utcnow(), attempts=backend_outbox.c.attempts + 1, last_error=None)
             )
 
     def mark_outbox_attempt(self, event_id: str, error: str, rejected: bool) -> None:
-        values: dict[str, Any] = {"attempts": udre_outbox.c.attempts + 1, "last_error": error[:4000]}
+        values: dict[str, Any] = {"attempts": backend_outbox.c.attempts + 1, "last_error": error[:4000]}
         if rejected:
             values["rejected_at"] = _utcnow()
         with self._engine.begin() as conn:
-            conn.execute(update(udre_outbox).where(udre_outbox.c.event_id == event_id).values(**values))
+            conn.execute(update(backend_outbox).where(backend_outbox.c.event_id == event_id).values(**values))
 
     def get_cursor(self, source_system: str, object_type: str) -> int | None:
         with self._engine.connect() as conn:
