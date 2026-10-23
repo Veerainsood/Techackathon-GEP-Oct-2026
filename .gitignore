@@ -1,0 +1,13 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+.env
+
+# embedded PostgreSQL data directory and generated artifacts (reproducible from seed)
+.pgdata/
+data/
+exports/
+
+# internal DBA reference document - do not publish
+dba_ref.txt
