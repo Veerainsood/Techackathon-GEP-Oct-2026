@@ -1,7 +1,6 @@
 import {
   Bot,
   Compass,
-  GitBranch,
   Inbox,
   Database,
   History,
@@ -26,15 +25,14 @@ interface Props {
   paused: boolean
   onTogglePause: () => void
   hasThread: boolean
-  live?: boolean
-  backend?: 'up' | 'down' | 'checking'
   recent?: string[]
   onRecent?: (q: string) => void
+  watchSummary?: string
 }
 
 const STORAGE_KEY = 'finsight.sidebar.collapsed'
 
-export function Sidebar({ view, onNavigate, onNew, pendingCount, paused, onTogglePause, hasThread, live, backend, recent, onRecent }: Props) {
+export function Sidebar({ view, onNavigate, onNew, pendingCount, paused, onTogglePause, hasThread, recent, onRecent, watchSummary }: Props) {
   const [collapsed, setCollapsed] = useState(() => localStorage.getItem(STORAGE_KEY) === '1')
 
   useEffect(() => {
@@ -52,22 +50,15 @@ export function Sidebar({ view, onNavigate, onNew, pendingCount, paused, onToggl
     return () => window.removeEventListener('keydown', onKey)
   }, [])
 
-  const items: { id: View; label: string; icon: typeof Compass; badge?: number; live?: boolean }[] = live
-    ? [
-        { id: 'home', label: 'Ask', icon: Compass },
-        { id: 'autopilot', label: 'Changes', icon: GitBranch, live: backend === 'up' },
-        { id: 'sources', label: 'Sources', icon: Database },
-        { id: 'activity', label: 'Answers', icon: ScrollText },
-      ]
-    : [
-        { id: 'home', label: 'Home', icon: Compass },
-        { id: 'autopilot', label: 'Autopilot', icon: Bot, live: true },
-        { id: 'approvals', label: 'Approvals', icon: Inbox, badge: pendingCount },
-        { id: 'activity', label: 'Activity log', icon: ScrollText },
-        { id: 'sources', label: 'Sources', icon: Database },
-        { id: 'settings', label: 'Settings', icon: Settings },
-      ]
-  const library = live ? recent ?? [] : recentThreads
+  const items: { id: View; label: string; icon: typeof Compass; badge?: number; live?: boolean }[] = [
+    { id: 'home', label: 'Home', icon: Compass },
+    { id: 'autopilot', label: 'Autopilot', icon: Bot, live: true },
+    { id: 'approvals', label: 'Approvals', icon: Inbox, badge: pendingCount },
+    { id: 'activity', label: 'Activity log', icon: ScrollText },
+    { id: 'sources', label: 'Sources', icon: Database },
+    { id: 'settings', label: 'Settings', icon: Settings },
+  ]
+  const library = recent ?? recentThreads
 
   const Logo = (
     <div className="flex h-7 w-9 shrink-0 items-center justify-center rounded-md bg-brand text-[11px] font-bold tracking-wide text-white">
@@ -174,7 +165,7 @@ export function Sidebar({ view, onNavigate, onNew, pendingCount, paused, onToggl
             {library.map((t, i) => (
               <button
                 key={`${t}-${i}`}
-                onClick={() => (live ? onRecent?.(t) : i === 0 && hasThread && onNavigate('thread'))}
+                onClick={() => (onRecent ? onRecent(t) : i === 0 && hasThread && onNavigate('thread'))}
                 className="flex items-center gap-2 truncate rounded-lg px-3 py-1.5 text-left text-[13px] text-stone-600 hover:bg-white/60"
               >
                 <History size={13} className="shrink-0 text-stone-400" />
@@ -185,15 +176,7 @@ export function Sidebar({ view, onNavigate, onNew, pendingCount, paused, onToggl
         </>
       )}
 
-      {live ? (
-        <div className={`mt-auto ${collapsed ? 'flex justify-center' : 'rounded-xl border border-line bg-white p-3'}`}>
-          <div className="flex items-center gap-2 text-xs">
-            <span className={`h-2 w-2 rounded-full ${backend === 'up' ? 'bg-emerald-500' : backend === 'down' ? 'bg-rose-500' : 'bg-stone-300'}`} />
-            {!collapsed && <span className="font-medium">{backend === 'up' ? 'Backend connected' : backend === 'down' ? 'Backend unreachable' : 'Connecting…'}</span>}
-          </div>
-          {!collapsed && <p className="mt-1 text-[11px] text-muted">Live mode · every step shown comes from a backend event</p>}
-        </div>
-      ) : collapsed ? (
+      {collapsed ? (
         <div className="mt-auto flex flex-col items-center gap-3">
           <button
             onClick={onTogglePause}
@@ -224,7 +207,7 @@ export function Sidebar({ view, onNavigate, onNew, pendingCount, paused, onToggl
               <span className={`h-2 w-2 rounded-full ${paused ? 'bg-rose-500' : 'animate-pulse bg-emerald-500'}`} />
             </div>
             <p className="mt-1 text-[11px] leading-snug text-muted">
-              {paused ? 'Paused. Agent will only analyze and recommend.' : 'Autopilot on · 3 standing goals · 6 sources watched'}
+              {paused ? 'Paused. Agent will only analyze and recommend.' : watchSummary ?? 'Autopilot on · 3 standing goals · 6 sources watched'}
             </p>
             <button
               onClick={onTogglePause}

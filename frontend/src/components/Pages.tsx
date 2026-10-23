@@ -1,6 +1,6 @@
 import { CheckCircle2, Inbox, Lock, RefreshCw } from 'lucide-react'
 import { useState, type ReactNode } from 'react'
-import { boundaries, policies, sources, type Action, type Mode } from '../data'
+import { boundaries, policies, sources, type Action, type Mode, type Source } from '../data'
 import { ActionRow } from './Thread'
 import { SourceDot } from './ui'
 
@@ -36,23 +36,33 @@ export function ApprovalsPage({ actions, onOpen, onApprove }: { actions: Action[
   )
 }
 
-export function ActivityPage({ actions, onOpen }: { actions: Action[]; onOpen: (id: string) => void }) {
-  const events = actions
-    .flatMap((a) => a.audit.map((e) => ({ ...e, action: a })))
-    .sort((x, y) => y.time.localeCompare(x.time))
+export interface ActivityRow {
+  time: string
+  actor: string
+  event: string
+  ref: string
+  onClick?: () => void
+}
+
+export function ActivityPage({ actions, onOpen, entries }: { actions: Action[]; onOpen: (id: string) => void; entries?: ActivityRow[] }) {
+  const events: ActivityRow[] =
+    entries ??
+    actions
+      .flatMap((a) => a.audit.map((e) => ({ ...e, ref: a.id, onClick: () => onOpen(a.id) })))
+      .sort((x, y) => y.time.localeCompare(x.time))
   return (
     <Page title="Activity log" subtitle="Every decision and action, traced from the goal to the result. Read-only and access-controlled.">
       <div className="overflow-hidden rounded-xl border border-line bg-white text-[13px]">
         {events.map((e, i) => (
           <button
             key={i}
-            onClick={() => onOpen(e.action.id)}
+            onClick={e.onClick}
             className="flex w-full items-center gap-4 border-b border-line px-4 py-2.5 text-left last:border-0 hover:bg-stone-50"
           >
             <span className="w-16 shrink-0 tabular-nums text-stone-400">{e.time}</span>
             <span className="w-36 shrink-0 truncate text-stone-500">{e.actor}</span>
             <span className="flex-1 truncate">{e.event}</span>
-            <span className="shrink-0 text-[11px] text-stone-400">{e.action.id}</span>
+            <span className="shrink-0 text-[11px] text-stone-400">{e.ref}</span>
           </button>
         ))}
       </div>
@@ -206,11 +216,11 @@ export function SettingsPage() {
   )
 }
 
-export function SourcesPage() {
+export function SourcesPage({ items = sources }: { items?: Source[] }) {
   return (
     <Page title="Sources" subtitle="Connected systems with the minimum access each one needs. Stale data is flagged, not used as if it were current.">
       <div className="grid grid-cols-2 gap-3">
-        {sources.map((s) => (
+        {items.map((s) => (
           <div key={s.id} className={`rounded-xl border bg-white p-4 ${s.stale ? 'border-rose-200' : 'border-line'}`}>
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">

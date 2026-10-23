@@ -1,5 +1,5 @@
 import { ArrowRight, Bell, Bot, ShieldAlert, X } from 'lucide-react'
-import { awaySummary, formatL, overnightRuns } from '../data'
+import { awaySummary, formatL, overnightRuns, type AutoRun } from '../data'
 
 export function NotificationButton({ unread, onClick, active }: { unread: number; onClick: () => void; active: boolean }) {
   return (
@@ -25,9 +25,13 @@ interface Props {
   onClose: () => void
   pendingCount: number
   onReview: () => void
+  stats?: { l: string; v: string; s: string; c: string }[]
+  runs?: AutoRun[]
+  windowLabel?: string
+  dataLabel?: string
 }
 
-export function NotificationsPanel({ open, onClose, pendingCount, onReview }: Props) {
+export function NotificationsPanel({ open, onClose, pendingCount, onReview, stats, runs = overnightRuns, windowLabel = awaySummary.window, dataLabel = 'sandbox data' }: Props) {
   return (
     <aside
       className={`shrink-0 overflow-hidden border-line bg-white transition-[width] duration-300 ease-out ${
@@ -47,16 +51,18 @@ export function NotificationsPanel({ open, onClose, pendingCount, onReview }: Pr
 
         <div className="flex-1 overflow-y-auto scrollbar-thin">
           <div className="px-5 pt-4 text-[12px] text-muted">
-            {awaySummary.window} · <span className="text-sky-700">sandbox data</span>
+            {windowLabel} · <span className="text-sky-700">{dataLabel}</span>
           </div>
 
           <div className="mx-5 mt-3 grid grid-cols-2 gap-2">
-            {[
-              { l: 'Handled on its own', v: String(awaySummary.handled), s: 'no human needed', c: 'text-ink' },
-              { l: 'Needed you', v: String(pendingCount), s: 'above its authority', c: 'text-amber-700' },
-              { l: 'Verified cash impact', v: formatL(awaySummary.realizedL), s: `+${formatL(awaySummary.estimatedL)} estimated`, c: 'text-emerald-700' },
-              { l: 'Team time saved', v: `${awaySummary.hoursSaved} hrs`, s: 'vs. manual follow-ups', c: 'text-ink' },
-            ].map((k) => (
+            {(
+              stats ?? [
+                { l: 'Handled on its own', v: String(awaySummary.handled), s: 'no human needed', c: 'text-ink' },
+                { l: 'Needed you', v: String(pendingCount), s: 'above its authority', c: 'text-amber-700' },
+                { l: 'Verified cash impact', v: formatL(awaySummary.realizedL), s: `+${formatL(awaySummary.estimatedL)} estimated`, c: 'text-emerald-700' },
+                { l: 'Team time saved', v: `${awaySummary.hoursSaved} hrs`, s: 'vs. manual follow-ups', c: 'text-ink' },
+              ]
+            ).map((k) => (
               <div key={k.l} className="rounded-xl bg-stone-50 px-3 py-2.5">
                 <div className="text-[11px] text-muted">{k.l}</div>
                 <div className={`text-[20px] font-semibold tracking-tight ${k.c}`}>{k.v}</div>
@@ -82,7 +88,7 @@ export function NotificationsPanel({ open, onClose, pendingCount, onReview }: Pr
 
           <div className="px-5 pb-2 pt-5 text-[11px] font-medium uppercase tracking-wider text-stone-400">Timeline</div>
           <ol className="relative mx-5 mb-6 border-l border-line">
-            {overnightRuns.map((r) => (
+            {runs.map((r) => (
               <li key={r.time + r.title} className="relative pb-4 pl-4 last:pb-0">
                 <span className="absolute -left-[5px] top-1.5 h-2.5 w-2.5 rounded-full border-2 border-white bg-brand" />
                 <div className="text-[11px] tabular-nums text-stone-400">{r.time}</div>

@@ -1,5 +1,5 @@
 import { CheckCircle2, Clock3, OctagonX, Radio, Target, UserRound } from 'lucide-react'
-import { awaySummary, standingGoals, suggestions, type LiveEvent } from '../data'
+import { awaySummary, standingGoals, suggestions, type LiveEvent, type StandingGoal } from '../data'
 
 export interface FeedItem extends LiveEvent {
   at: string
@@ -11,6 +11,9 @@ interface Props {
   paused: boolean
   feed: FeedItem[]
   onOpenAction: (id: string) => void
+  goals?: StandingGoal[]
+  handledTotal?: number
+  sourceCount?: number
 }
 
 const handledStyle = {
@@ -19,7 +22,7 @@ const handledStyle = {
   blocked: { label: 'Blocked', cls: 'bg-orange-50 text-orange-700 ring-orange-200', icon: OctagonX },
 }
 
-export function AutopilotPage({ onSubmit, pendingCount, paused, feed, onOpenAction }: Props) {
+export function AutopilotPage({ onSubmit, pendingCount, paused, feed, onOpenAction, goals = standingGoals, handledTotal, sourceCount = 6 }: Props) {
   const handledLive = feed.filter((f) => f.handled !== 'escalated').length
   return (
     <div className="h-full overflow-y-auto px-6 scrollbar-thin">
@@ -31,7 +34,7 @@ export function AutopilotPage({ onSubmit, pendingCount, paused, feed, onOpenActi
         <div className="mb-8 mt-5 grid grid-cols-3 gap-3">
           {[
             { l: 'Status', v: paused ? 'Paused' : 'Running', c: paused ? 'text-rose-700' : 'text-emerald-700' },
-            { l: 'Handled on its own today', v: String(awaySummary.handled + handledLive), c: 'text-ink' },
+            { l: 'Handled on its own today', v: String(handledTotal ?? awaySummary.handled + handledLive), c: 'text-ink' },
             { l: 'Escalated to people', v: String(pendingCount), c: 'text-amber-700' },
           ].map((k) => (
             <div key={k.l} className="rounded-xl border border-line bg-white px-4 py-3">
@@ -48,10 +51,10 @@ export function AutopilotPage({ onSubmit, pendingCount, paused, feed, onOpenActi
               <span className="text-[11px] font-normal text-muted">always running</span>
             </div>
             <div className="space-y-2.5">
-              {standingGoals.map((g) => (
+              {goals.map((g) => (
                 <button
                   key={g.id}
-                  onClick={() => g.id === 'G-1' && onSubmit(suggestions[0])}
+                  onClick={() => goals === standingGoals && g.id === 'G-1' && onSubmit(suggestions[0])}
                   className="w-full rounded-xl border border-line bg-white p-3.5 text-left transition hover:border-stone-300"
                 >
                   <div className="flex items-start justify-between gap-2">
@@ -100,7 +103,7 @@ export function AutopilotPage({ onSubmit, pendingCount, paused, feed, onOpenActi
                       <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-brand opacity-60" />
                       <span className="relative inline-flex h-2 w-2 rounded-full bg-brand" />
                     </span>
-                    <span className="shimmer-text">Watching 6 sources for changes…</span>
+                    <span className="shimmer-text">Watching {sourceCount} sources for changes…</span>
                   </>
                 )}
               </div>
@@ -111,7 +114,7 @@ export function AutopilotPage({ onSubmit, pendingCount, paused, feed, onOpenActi
                   const Icon = st.icon
                   return (
                     <li
-                      key={e.title}
+                      key={e.at + e.title}
                       onClick={() => e.action && onOpenAction(e.action.id)}
                       className={`px-4 py-3 fade-up ${e.action ? 'cursor-pointer hover:bg-stone-50' : ''}`}
                     >

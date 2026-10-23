@@ -1,5 +1,5 @@
 import { ArrowUp, ChevronDown, Database, Paperclip, Target } from 'lucide-react'
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 
 export const modes = [
   { id: 'L1', name: 'Analyze', desc: 'Read data, surface issues' },
@@ -13,10 +13,13 @@ interface Props {
   placeholder?: string
   compact?: boolean
   initial?: string
+  sourceCount?: number
+  onAttach?: (files: File[]) => void
 }
 
-export function Composer({ onSubmit, placeholder = 'Set a financial goal or ask anything…', compact, initial = '' }: Props) {
+export function Composer({ onSubmit, placeholder = 'Set a financial goal or ask anything…', compact, initial = '', sourceCount = 6, onAttach }: Props) {
   const [value, setValue] = useState(initial)
+  const fileRef = useRef<HTMLInputElement>(null)
   const [mode, setMode] = useState<(typeof modes)[number]>(modes[3])
   const [open, setOpen] = useState(false)
 
@@ -78,13 +81,27 @@ export function Composer({ onSubmit, placeholder = 'Set a financial goal or ask 
             )}
           </div>
           <button className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs text-stone-600 hover:bg-stone-100">
-            <Database size={13} /> 6 sources
+            <Database size={13} /> {sourceCount} sources
           </button>
         </div>
         <div className="flex items-center gap-1">
-          <button className="rounded-lg p-2 text-stone-500 hover:bg-stone-100">
+          <button onClick={() => fileRef.current?.click()} className="rounded-lg p-2 text-stone-500 hover:bg-stone-100">
             <Paperclip size={15} />
           </button>
+          {onAttach && (
+            <input
+              ref={fileRef}
+              type="file"
+              multiple
+              hidden
+              accept=".csv,.tsv,.xlsx,.xls,.json,.jsonl,.parquet"
+              onChange={(e) => {
+                const files = Array.from(e.target.files ?? [])
+                if (files.length) onAttach(files)
+                e.target.value = ''
+              }}
+            />
+          )}
           <button
             onClick={submit}
             disabled={!value.trim()}

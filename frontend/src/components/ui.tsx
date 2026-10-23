@@ -1,6 +1,6 @@
 import { AlertTriangle, CheckCircle2, CircleDashed, Clock, FlaskConical, Lightbulb, OctagonX, XCircle } from 'lucide-react'
 import type { ReactNode } from 'react'
-import { sources, type ActionStatus } from '../data'
+import { sources, type ActionStatus, type Source } from '../data'
 
 const statusMap: Record<ActionStatus, { label: string; cls: string; icon: ReactNode }> = {
   verified: { label: 'Verified', cls: 'bg-emerald-50 text-emerald-700 ring-emerald-200', icon: <CheckCircle2 size={12} /> },
@@ -21,11 +21,12 @@ export function StatusPill({ status }: { status: ActionStatus }) {
   )
 }
 
-export function Cite({ ids }: { ids: number[] }) {
+export function Cite({ ids, list = sources }: { ids: number[]; list?: Source[] }) {
   return (
     <span className="ml-0.5 inline-flex gap-0.5 align-middle">
       {ids.map((id) => {
-        const src = sources.find((s) => s.id === id)!
+        const src = list.find((s) => s.id === id)
+        if (!src) return null
         return (
           <span
             key={id}

@@ -19,7 +19,19 @@ python -m uvicorn udre.api.app:app --port 8000      # API + background event wor
 cd frontend; npm install; npm run dev                # http://localhost:5173 (live mode)
 ```
 
-`VITE_UDRE_MODE=demo` brings back the original static mockup. Live mode never shows scripted data: every step, tool call, verdict and freshness badge on screen is rendered from a backend response or SSE event.
+The UI itself is unchanged. Live mode feeds the original screens from the backend through `frontend/src/live/adapter.ts`; `VITE_UDRE_MODE=demo` brings back the scripted mockup data.
+
+| Screen | Live data |
+|---|---|
+| Home | Composer posts to `/ask/stream`. The paperclip uploads files and opens a workspace for the next questions. "N sources" and "handled N things" are real counts. Suggestions are questions the warehouse can answer |
+| Thread | Same step list, source cards, answer, KPI tiles, callouts, table and agent-conflict box. Steps advance on real graph node events; details come from manifest, tool, candidate and verdict events. The Actions tab lists downloadable artifacts. Share downloads the first artifact |
+| Autopilot | Live feed = sync events plus their investigations. Standing goals = one per source with its sync status |
+| Activity log | Saved answers, sync events and investigations, newest first. Clicking an answer re-asks it |
+| Sources | `/runtime/sources` (type, collections, data version, last sync, stale on failed sync) |
+| Notifications | Investigation timeline and real counts |
+| Sidebar | Library = recently saved answers |
+
+Approvals and Settings keep their original content: the backend has no action-execution or guardrail API, so live mode creates no actions and Approvals shows "You're all caught up".
 
 ## Flow
 
@@ -205,7 +217,7 @@ Stop a running dev backend before running the suite. Its event worker polls the 
 * GPT adjudicator with one targeted verification query, plus guards.
 * File store, workspaces, artifacts and the local sandbox.
 * The new API endpoints.
-* Frontend live mode (ask with SSE pipeline, sources/freshness, changes, answers, uploads to workspaces, artifact download). The frontend is type-checked and builds; it was exercised against the running backend over HTTP, not with browser automation.
+* Frontend integration into the existing screens without UI changes: streamed thread, sources and freshness, change feed, activity log, uploads to workspaces, artifact download. The frontend type-checks, builds and lints (warnings only, the same kinds as the original code). The endpoints it polls were checked against a running backend over HTTP; it has not been clicked through with browser automation.
 
 **Partial**
 
@@ -220,6 +232,6 @@ Stop a running dev backend before running the suite. Its event worker polls the 
 **Not implemented**
 
 * User authentication or authorization in front of the API (tenant and user are trusted headers).
-* A push channel (WebSocket or SSE) for changes; the Changes and Sources pages poll.
-* The Approvals and Settings pages exist only in demo mode.
+* A push channel (WebSocket or SSE) for changes; the app polls the runtime endpoints every 5 seconds.
+* Approvals and Settings have no backend (no action execution or guardrail API); in live mode they show their original static content.
 * Stage B results are not surfaced as proactive notifications.

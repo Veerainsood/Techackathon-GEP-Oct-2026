@@ -416,7 +416,7 @@ export function Thread({ query, actions, onOpenAction, onApprove, onFollowUp, pa
   )
 }
 
-function SourceCard({ s, large }: { s: (typeof sources)[number]; large?: boolean }) {
+export function SourceCard({ s, large }: { s: (typeof sources)[number]; large?: boolean }) {
   return (
     <div className={`rounded-xl border bg-white p-2.5 ${s.stale ? 'border-rose-200' : 'border-line'} ${large ? 'p-3.5' : ''}`}>
       <div className="line-clamp-2 text-[12px] font-medium leading-snug">{s.detail}</div>
@@ -431,7 +431,7 @@ function SourceCard({ s, large }: { s: (typeof sources)[number]; large?: boolean
   )
 }
 
-function Callout({ tone, children }: { tone: 'rose' | 'amber'; children: React.ReactNode }) {
+export function Callout({ tone, children }: { tone: 'rose' | 'amber'; children: React.ReactNode }) {
   const cls = tone === 'rose' ? 'border-rose-200 bg-rose-50/60 text-rose-900' : 'border-amber-200 bg-amber-50/60 text-amber-900'
   return (
     <div className={`flex gap-2.5 rounded-xl border px-3.5 py-2.5 text-[13px] leading-relaxed ${cls}`}>

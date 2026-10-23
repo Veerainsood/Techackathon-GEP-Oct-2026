@@ -8,9 +8,13 @@ interface Props {
   paused: boolean
   handledLive: number
   onOpenAutopilot: () => void
+  handledTotal?: number
+  examples?: string[]
+  sourceCount?: number
+  onAttach?: (files: File[]) => void
 }
 
-export function Home({ onSubmit, pendingCount, paused, handledLive, onOpenAutopilot }: Props) {
+export function Home({ onSubmit, pendingCount, paused, handledLive, onOpenAutopilot, handledTotal, examples = suggestions, sourceCount, onAttach }: Props) {
   const hour = new Date().getHours()
   const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening'
 
@@ -27,13 +31,13 @@ export function Home({ onSubmit, pendingCount, paused, handledLive, onOpenAutopi
           <span className={`h-1.5 w-1.5 rounded-full ${paused ? 'bg-rose-500' : 'animate-pulse bg-emerald-500'}`} />
           {paused
             ? 'Autopilot paused — the agent is only watching and recommending'
-            : `Autopilot is on · handled ${awaySummary.handled + handledLive} things on its own · ${pendingCount} need you`}
+            : `Autopilot is on · handled ${handledTotal ?? awaySummary.handled + handledLive} things on its own · ${pendingCount} need you`}
           <ArrowRight size={13} className="opacity-0 transition group-hover:opacity-100" />
         </button>
 
-        <Composer onSubmit={onSubmit} placeholder="Give the agent a new goal, or ask about anything it did…" />
+        <Composer onSubmit={onSubmit} placeholder="Give the agent a new goal, or ask about anything it did…" sourceCount={sourceCount} onAttach={onAttach} />
         <div className="mt-4 flex flex-wrap justify-center gap-2">
-          {suggestions.map((s) => (
+          {examples.map((s) => (
             <button
               key={s}
               onClick={() => onSubmit(s)}
