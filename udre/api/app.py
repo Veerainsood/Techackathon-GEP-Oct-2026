@@ -25,7 +25,8 @@ import os
 from fastapi.middleware.cors import CORSMiddleware
 
 app = FastAPI(title="Universal Data Reasoning Engine", version="1.1.0")
-app.add_middleware(CORSMiddleware, allow_origins=os.environ.get("UDRE_CORS_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173").split(","),
+app.add_middleware(CORSMiddleware, allow_origins=[o for o in os.environ.get("UDRE_CORS_ORIGINS", "").split(",") if o],
+                   allow_origin_regex=os.environ.get("UDRE_CORS_ORIGIN_REGEX", r"https?://(localhost|127\.0\.0\.1)(:\d+)?"),
                    allow_methods=["*"], allow_headers=["*"])
 
 
