@@ -169,6 +169,15 @@ NAME_A = ["Norvane", "Quillon", "Stratavex", "Halcyra", "Brightmere", "Ostrava",
           "Ravenna", "Silverline", "Tamsin", "Umbra", "Vantage", "Westerly"]
 NAME_B = ["Holdings", "Group", "Partners", "Industries", "Health", "Financial", "Retail Co.", "Manufacturing",
           "Systems", "Logistics", "Mutual", "Labs"]
+# Companies in the HubSpot test portal. With the default seed, these customer groups (by position) and this
+# CRM-only prospect carry their names, so CRM and finance data describe the same customers. The groups were chosen
+# so finance history matches each company's HubSpot lifecycle stage: customer-stage companies are groups with signed
+# contracts and invoices; Fabrikam (opportunity) is a prospect with open deals only. Names are swapped after the
+# random draws, so every amount, date and ID is identical to an unrenamed build.
+HUBSPOT_GROUP_NAMES = {4: "Northwind Traders", 16: "Litware Pvt Ltd", 25: "Woodgrove Bank", 27: "Contoso Logistics",
+                       31: "Adatum Systems"}
+HUBSPOT_PROSPECT_NAMES = {3: "Fabrikam Retail"}  # index among the unlinked prospects
+
 FIRST = ["Avery", "Jordan", "Riley", "Morgan", "Casey", "Quinn", "Harper", "Rowan", "Elliot", "Skyler", "Dakota",
          "Reese", "Emerson", "Finley", "Hayden", "Kendall", "Logan", "Parker", "Sage", "Tatum"]
 LAST = ["Abernathy", "Blackwood", "Castellano", "Delacroix", "Everhart", "Fairbanks", "Galloway", "Hargrove",
@@ -444,6 +453,10 @@ class SyntheticFinanceGenerator:
             if n.split()[0] not in used:
                 used.add(n.split()[0])
                 names.append(n)
+        hubspot_names = self.seed == SEED and self.n_groups == 40
+        if hubspot_names:
+            for position, real_name in HUBSPOT_GROUP_NAMES.items():
+                names[position - 1] = real_name
         self.groups: List[Dict[str, Any]] = []
         self.debtors_by_group: Dict[str, List[str]] = defaultdict(list)
         self.debtor_info: Dict[str, Dict[str, Any]] = {}
@@ -523,9 +536,12 @@ class SyntheticFinanceGenerator:
             crm_seq += 1
             region = rng.choice(["AMER", "EMEA", "APAC"])
             ind_code, _l, raws = rng.choice(INDUSTRIES)
+            prospect_name = f"{rng.choice(NAME_A)} {rng.choice(['Ventures', 'Collective', 'Dynamics'])}"
+            if hubspot_names and j in HUBSPOT_PROSPECT_NAMES:
+                prospect_name = HUBSPOT_PROSPECT_NAMES[j]
             R["pipeline_crm.prospect_accounts"].append(dict(
                 crm_account_id=f"CRM-{crm_seq:05d}", conglomerate_id=None,
-                crm_account_name=f"{rng.choice(NAME_A)} {rng.choice(['Ventures', 'Collective', 'Dynamics'])}",
+                crm_account_name=prospect_name,
                 crm_region_raw=rng.choice(CRM_REGION_VARIANTS[region]), crm_industry_raw=rng.choice(raws),
                 market_segment="Commercial", account_owner_rep_id=rng.choice(self.reps_by_region[region]),
                 is_existing_customer=False))
@@ -725,6 +741,7 @@ class SyntheticFinanceGenerator:
                     ref_token=f"{prefix}-{rng.randint(100000, 999999)}",
                     extraction_confidence=round(rng.uniform(0.62, 0.995), 4), page_number=rng.randint(1, 14)))
         signed_groups = {a["matched_group_id"] for a in self.agreements if a["execution_status"] in ("Fully_Signed", "Expired", "Terminated")}
+        signed_groups.discard(None)  # unmatched agreements belong to no account
         for acct in R["pipeline_crm.prospect_accounts"]:
             acct["is_existing_customer"] = acct["conglomerate_id"] in signed_groups
 

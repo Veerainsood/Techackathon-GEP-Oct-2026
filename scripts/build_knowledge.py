@@ -1,4 +1,4 @@
-"""Discover, profile and build the ontology for every registered source.
+"""Discover, profile and build the ontology for every registered source, and regenerate its collection references.
 
 Usage: python scripts/build_knowledge.py [--force]
 """
@@ -23,8 +23,8 @@ def main() -> None:
     engine = build_engine()
     for sid in [s.source_id for s in engine.gateway.sources(engine.default_ctx)]:
         t0 = time.time()
-        report = engine.builder.build(engine.default_ctx, sid, force=args.force)
-        print(f"{sid}: {time.time() - t0:.1f}s {json.dumps(report.__dict__, default=str)}")
+        report = engine.prepare_source(engine.default_ctx, sid, force=args.force)
+        print(f"{sid}: {time.time() - t0:.1f}s {json.dumps(report, default=str)}")
     print(json.dumps(engine.kg.stats(), indent=1))
 
 

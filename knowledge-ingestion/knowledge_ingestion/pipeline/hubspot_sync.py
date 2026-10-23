@@ -161,12 +161,17 @@ def _poll_once(store: KnowledgeStore) -> SyncResult:
         for object_type, items in records.items()
     }
     extracted = sum(len(items) for items in records.values())
-    outbox: list[OutboxEvent] = []
-    if config.udre.enabled:
-        outbox = build_success_events(run_id, window_start, started_at, changes, datetime.now(timezone.utc))
     try:
         # Warehouse first, then our raw snapshot. Both are upserts or appends, so a retry is safe.
-        get_warehouse().load(batch_id, records, started_at)
+        account_changes = get_warehouse().load(batch_id, records, started_at)
+        outbox: list[OutboxEvent] = []
+        if config.udre.enabled:
+            # Contacts are keyed by their HubSpot id. Companies are reported as the warehouse accounts the load
+            # created or changed (linked companies keep their existing CRM account id, not the HubSpot id).
+            event_changes = [change for change in changes if change[0] == "contacts"] + [
+                ("companies", op, account_id) for account_id, op in sorted(account_changes.items())
+            ]
+            outbox = build_success_events(run_id, window_start, started_at, event_changes, datetime.now(timezone.utc))
         store.save_snapshot(run_id, SOURCE_SYSTEM, started_at, batch, cursors=new_cursors, outbox=outbox)
     except Exception as error:
         message = f"{type(error).__name__}: {error}"

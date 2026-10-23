@@ -37,6 +37,13 @@ Approvals and Settings keep their original content: the backend has no action-ex
 
 `scripts/start_dev.ps1` also starts the ingestion service on port 8001 when `knowledge-ingestion/.env` exists. It polls HubSpot, writes `hubspot.contacts` and `pipeline_crm.prospect_accounts` into the warehouse database, and publishes signed sync events to `UDRE_EVENTS_URL` (http://localhost:8000). Both `.env` files need the same `UDRE_EVENT_SECRET`. UDRE exposes these tables as the `hubspot` source, and `finance_pg` hides the `hubspot` and `public` schemas, which hold the service's own bookkeeping tables, including raw HubSpot payloads.
 
+How the two systems stay consistent:
+
+* **Same customers.** The HubSpot test portal's companies are real customers in the synthetic warehouse: Contoso Logistics, Woodgrove Bank, Northwind Traders, Adatum Systems and Litware Pvt Ltd are customer groups with contracts and invoices; Fabrikam Retail (an opportunity in HubSpot) is a prospect with open deals only. The generator renames existing groups after its random draws, so every amount, date and ID, and every invariant, is unchanged (`HUBSPOT_GROUP_NAMES` in `udre/synthetic/generator.py`).
+* **Linking, not duplicating.** The loader links each HubSpot company, and each contact's company, to the CRM account that already represents it. Matching uses the account name, the customer group name or a verified counterparty alias, ignoring legal suffixes. Links are stored in `hubspot.company_links` and `hubspot.contacts.crm_account_id`. Only unmatched companies become new prospects.
+* **One owner per field.** HubSpot owns account names and lifecycle; finance owns invoices, contracts and amounts. `is_existing_customer` is true when HubSpot has a customer-stage contact or the customer group has a signed contract, so the two never disagree about who is a customer.
+* **Events name what changed.** Sync events list changed contacts by HubSpot ID, and changed accounts by their CRM account ID: created, renamed or customer flag flipped.
+
 ## Flow
 
 ```mermaid
