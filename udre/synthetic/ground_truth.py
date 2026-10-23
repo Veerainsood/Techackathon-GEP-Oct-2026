@@ -248,4 +248,62 @@ def build_benchmark(gen: SyntheticFinanceGenerator) -> List[Dict[str, Any]]:
         """SELECT SUM(p.debit_amount_usd) FROM ledger_erp.journal_postings p JOIN ledger_erp.journal_vouchers v
            ON v.voucher_id = p.voucher_id WHERE v.posting_status = 'POSTED' AND v.fiscal_period = '2025-06'""",
         "reconciliation", tables=["ledger_erp.journal_postings", "ledger_erp.journal_vouchers"], values=["POSTED", "2025-06"])
+
+    # ---------------- held-out v2: written after the first held-out run, scored exactly once
+    add("N01", "heldout2", "How many credit memo events were posted in fiscal period 2025-09?",
+        sum(1 for i, e in events if e["type"] == "CREDIT_MEMO" and period_of(e["date"]) == "2025-09"),
+        "SELECT COUNT(*) FROM ledger_erp.receivable_ledger_events WHERE event_type = 'CREDIT_MEMO' AND fiscal_period = '2025-09'",
+        "credits", tables=["ledger_erp.receivable_ledger_events"], values=["CREDIT_MEMO", "2025-09"])
+    add("N02", "heldout2", "What is the total tax amount in USD on invoices issued by legal entity AETH-UK in 2025?",
+        amt(sum(i.tax_usd for i in inv if i.entity == "AETH-UK" and i.invoice_date.year == 2025)),
+        "SELECT SUM(tax_amount_usd) FROM ledger_erp.sales_invoices WHERE legal_entity_code = 'AETH-UK' AND fiscal_period LIKE '2025-%'",
+        "tax", tables=["ledger_erp.sales_invoices"], values=["AETH-UK"])
+    exp_arr = [d["_arr_c"] for d in deals if d["deal_type"] == "Expansion"]
+    add("N03", "heldout2", "What is the average deal ARR in USD for Expansion deals?",
+        round(sum(exp_arr) / len(exp_arr) / 100, 4),
+        "SELECT AVG(deal_arr_usd) FROM pipeline_crm.deal_opportunities WHERE deal_type = 'Expansion'", "crm",
+        tables=["pipeline_crm.deal_opportunities"], values=["Expansion"])
+    pl: Dict[str, int] = defaultdict(int)
+    for r in R["exec_reporting.monthly_revenue_posture"]:
+        if r["snapshot_period"] == "2025-12":
+            pl[nodes[r["product_line_node_id"]]] += int(round(r["contracted_arr_usd"] * 100))
+    add("N04", "heldout2", "What is the total contracted ARR in USD by product line for snapshot period 2025-12?",
+        {k: amt(v) for k, v in sorted(pl.items())},
+        """SELECT n.canonical_label, SUM(m.contracted_arr_usd) FROM exec_reporting.monthly_revenue_posture m
+           JOIN master_ref.taxonomy_nodes n ON n.node_id = m.product_line_node_id
+           WHERE m.snapshot_period = '2025-12' GROUP BY n.canonical_label""",
+        "reporting", answer_type="grouped", tables=["exec_reporting.monthly_revenue_posture"], values=["2025-12"])
+    add("N05", "heldout2", "How many conglomerates have a credit risk rating of WATCH?",
+        sum(1 for g in R["master_ref.client_conglomerates"] if g["credit_risk_rating"] == "WATCH"),
+        "SELECT COUNT(*) FROM master_ref.client_conglomerates WHERE credit_risk_rating = 'WATCH'", "identity",
+        tables=["master_ref.client_conglomerates"], values=["WATCH"])
+    terms = {d["debtor_id"]: d["payment_terms_code"] for d in R["ledger_erp.receivable_debtors"]}
+    add("N06", "heldout2", "What is the total open balance in USD of invoices for debtors with payment terms NET60?",
+        amt(sum(i.open_usd for i in inv if terms[i.debtor_id] == "NET60")),
+        """SELECT SUM(i.open_balance_usd) FROM ledger_erp.sales_invoices i JOIN ledger_erp.receivable_debtors d
+           ON d.debtor_id = i.debtor_id WHERE d.payment_terms_code = 'NET60'""",
+        "cross_domain", tables=["ledger_erp.sales_invoices", "ledger_erp.receivable_debtors"], values=["NET60"])
+    add("N07", "heldout2", "What is the total target amount in USD for scenario FY2026_BASELINE_PLAN?",
+        amt(sum(int(round(t["target_amount_usd"] * 100)) for t in R["fpna_plan.financial_targets"]
+                if t["plan_scenario"] == "FY2026_BASELINE_PLAN")),
+        "SELECT SUM(target_amount_usd) FROM fpna_plan.financial_targets WHERE plan_scenario = 'FY2026_BASELINE_PLAN'",
+        "budget", tables=["fpna_plan.financial_targets"], values=["FY2026_BASELINE_PLAN"])
+    reps = {r["rep_id"]: r["rep_full_name"] for r in R["pipeline_crm.quota_carriers"]}
+    by_rep: Dict[str, int] = defaultdict(int)
+    for d in deals:
+        by_rep[reps[d["owner_rep_id"]]] += int(round(d["weighted_arr_usd"] * 100))
+    add("N08", "heldout2", "Who are the top 3 quota carriers by total weighted ARR in USD of their deals?",
+        {k: amt(v) for k, v in sorted(by_rep.items(), key=lambda kv: -kv[1])[:3]},
+        """SELECT r.rep_full_name, SUM(o.weighted_arr_usd) s FROM pipeline_crm.deal_opportunities o
+           JOIN pipeline_crm.quota_carriers r ON r.rep_id = o.owner_rep_id GROUP BY r.rep_full_name ORDER BY s DESC LIMIT 3""",
+        "cross_domain", answer_type="grouped",
+        tables=["pipeline_crm.deal_opportunities", "pipeline_crm.quota_carriers"])
+    add("N09", "heldout2", "How are we doing against plan this year?", None, "-- ambiguous: which metric, which plan, which period",
+        "ambiguity", behavior="flag_ambiguity")
+    prod_usd = sum(l["_usd_c"] for i in inv for l in i.lines if l["catalog_item_id"] == "PRD-003")
+    add("N10", "heldout2", "What is the total line net amount in USD of invoice items for the offering Managed Cloud Hosting?",
+        amt(prod_usd),
+        """SELECT SUM(l.line_net_amount_usd) FROM ledger_erp.sales_invoice_items l JOIN ledger_erp.catalog_offerings c
+           ON c.catalog_item_id = l.catalog_item_id WHERE c.offering_name = 'Managed Cloud Hosting'""",
+        "cross_domain", tables=["ledger_erp.sales_invoice_items", "ledger_erp.catalog_offerings"], values=["Managed Cloud Hosting"])
     return q

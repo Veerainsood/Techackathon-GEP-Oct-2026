@@ -26,13 +26,14 @@ def load(split: str):
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--split", default="heldout", choices=["heldout", "dev", "all"])
+    ap.add_argument("--split", default="heldout", choices=["heldout", "heldout2", "dev", "all"])
+    ap.add_argument("--out", default="results")
     args = ap.parse_args()
     engine = build_engine()
     ctx = engine.default_ctx
     for sid in [s.source_id for s in engine.gateway.sources(ctx)]:
         engine.builder.build(ctx, sid)
-    splits = ["dev", "heldout"] if args.split == "all" else [args.split]
+    splits = ["dev", "heldout", "heldout2"] if args.split == "all" else [args.split]
     report = {"generated_at": time.strftime("%Y-%m-%d %H:%M:%S"), "splits": {}}
     for split in splits:
         qs = load(split)
@@ -41,7 +42,7 @@ def main() -> None:
             res[mode] = evaluate(engine, qs, mode, use_memory=False)
             print(split, mode, json.dumps(res[mode]["summary"]))
         engine.memory.clear(ctx)
-        if split == "heldout":  # memory may only be warmed on the dev split
+        if split != "dev":  # memory may only be warmed on the dev split
             evaluate(engine, load("dev"), "dual", use_memory=True)
         res["dual_memory"] = evaluate(engine, qs, "dual", use_memory=True)
         print(split, "dual_memory", json.dumps(res["dual_memory"]["summary"]), engine.memory.stats(ctx))
@@ -57,8 +58,8 @@ def main() -> None:
     report["source_migration"] = {"target": "uploads (CSV/Parquet/Excel/JSON via DuckDB)", "code_changes": 0,
                                   "onboarding_seconds": onboarding_s, "ontology": onboarding.__dict__, **mig}
     print("migration", json.dumps(mig["summary"]), "onboarding_s", onboarding_s)
-    (ROOT / "benchmark" / "results.json").write_text(json.dumps(report, indent=1, default=str), encoding="utf-8")
-    (ROOT / "benchmark" / "RESULTS.md").write_text(render_md(report), encoding="utf-8")
+    (ROOT / "benchmark" / f"{args.out}.json").write_text(json.dumps(report, indent=1, default=str), encoding="utf-8")
+    (ROOT / "benchmark" / f"{args.out.upper()}.md").write_text(render_md(report), encoding="utf-8")
 
 
 def render_md(report) -> str:

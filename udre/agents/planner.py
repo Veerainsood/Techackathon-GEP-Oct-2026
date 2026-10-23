@@ -263,26 +263,37 @@ class SemanticPlanner:
         return scored
 
     def _join_path(self, start: str, goal: str) -> Optional[List[Dict[str, Any]]]:
-        from collections import deque
+        """Best N:1 path: fewest hops, then FK names mentioned in the question, then fewest null keys."""
         if start == goal:
             return []
         adj: Dict[str, List[Dict[str, Any]]] = {}
         for r in self.v.relationships:
             adj.setdefault(r["child"], []).append(r)
-        queue, seen = deque([(start, [])]), {start}
-        while queue:
-            node, path = queue.popleft()
+        paths: List[List[Dict[str, Any]]] = []
+
+        def walk(node: str, path: List[Dict[str, Any]], seen: Set[str]) -> None:
             if len(path) >= 3:
-                continue
-            for r in sorted(adj.get(node, []), key=lambda r: (r["parent"], r["child_col"])):
+                return
+            for r in adj.get(node, []):
                 if r["parent"] in seen:
                     continue
                 step = dict(r, direction="n:1", left=node, right=r["parent"])
                 if r["parent"] == goal:
-                    return path + [step]
-                seen.add(r["parent"])
-                queue.append((r["parent"], path + [step]))
-        return None
+                    paths.append(path + [step])
+                else:
+                    walk(r["parent"], path + [step], seen | {r["parent"]})
+
+        walk(start, [], {start})
+        if not paths:
+            return None
+        q = getattr(self, "_qtokens", set())
+
+        def rank(p: List[Dict[str, Any]]) -> Tuple[Any, ...]:
+            mention = sum(len(set(tokens(s["child_col"])) & q) for s in p)
+            nulls = sum(int(s.get("null_keys") or 0) for s in p)
+            return (len(p), -mention, nulls, [(s["left"], s["child_col"]) for s in p])
+
+        return min(paths, key=rank)
 
     # .................................................................. value grounding
     def _ngrams(self, text: str) -> List[Tuple[str, str]]:
@@ -401,6 +412,8 @@ class SemanticPlanner:
     # .................................................................. main entry
     def plan(self, question: str) -> QueryPlan:
         frame = parse_question(question)
+        self._qtokens = set(frame.content)
+        self._group_via: Optional[JoinSpec] = None
         rationale: List[str] = [f"aggregation={frame.aggregation}"]
         measures = self._measure_scores(frame)
         consumed: Set[str] = set()
@@ -472,8 +485,17 @@ class SemanticPlanner:
         # joins for every non-primary collection referenced
         joins: List[JoinSpec] = []
         needed = list(dict.fromkeys([f.collection for f in filters] + [g[0] for g in group_by]))
+        via = self._group_via
+        if via is not None and group_by and group_by[0][0] == via.right:
+            if via.left != primary:
+                for step in self.join_path(primary, via.left) or []:
+                    j = JoinSpec(left=step["left"], left_col=step["child_col"], right=step["right"], right_col=step["parent_col"])
+                    if j not in joins:
+                        joins.append(j)
+            joins.append(via)
+            needed = [c for c in needed if c != via.right]
         for coll in needed:
-            if coll == primary:
+            if coll == primary or any(j.right == coll for j in joins):
                 continue
             path = self.join_path(primary, coll) or []
             for step in path:
@@ -511,11 +533,12 @@ class SemanticPlanner:
         if not best:
             return None
         c = best[1]
-        if c.fk_target:  # group by a readable label on the referenced collection when one exists
-            parent = c.fk_target.rsplit(".", 1)[0]
+        if c.fk_target:  # group by a readable label on the referenced collection, joined through *this* key
+            parent, parent_col = c.fk_target.rsplit(".", 1)
             if parent in self.v.collections:
                 label = self._label_column(parent)
-                if label and label != c.fk_target.rsplit(".", 1)[1]:
+                if label and label != parent_col:
+                    self._group_via = JoinSpec(left=c.collection, left_col=c.column, right=parent, right_col=parent_col)
                     return (parent, label)
         return (c.collection, c.column)
 

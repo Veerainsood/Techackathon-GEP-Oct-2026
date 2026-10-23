@@ -107,13 +107,14 @@ class LearningStore:
         return out[:k]
 
     def by_kind(self, ctx: AccessContext, kind: str, source_id: Optional[str] = None) -> List[Dict[str, Any]]:
-        sql = f"SELECT item_key, source_id, schema_version, payload, uses FROM udre_memory.learned_items WHERE {self._scope()} AND kind = %s"
+        sql = (f"SELECT item_key, source_id, schema_version, payload, uses, question FROM udre_memory.learned_items "
+               f"WHERE {self._scope()} AND kind = %s")
         params: List[Any] = [ctx.tenant_id, ctx.user_id, kind]
         if source_id:
             sql += " AND source_id = %s"
             params.append(source_id)
         rows = self._exec(sql + " ORDER BY uses DESC, updated_at DESC", params, fetch=True)
-        return [dict(key=k, source_id=s, schema_version=v, payload=p, uses=u) for k, s, v, p, u in rows]
+        return [dict(key=k, source_id=s, schema_version=v, payload=p, uses=u, question=q) for k, s, v, p, u, q in rows]
 
     def value_mappings(self, ctx: AccessContext, versions: Dict[str, str]) -> Dict[str, List[Dict[str, Any]]]:
         out: Dict[str, List[Dict[str, Any]]] = {}

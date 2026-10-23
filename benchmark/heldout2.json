@@ -1,0 +1,179 @@
+[
+  {
+    "id": "N01",
+    "split": "heldout2",
+    "question": "How many credit memo events were posted in fiscal period 2025-09?",
+    "expected": 4,
+    "verification_sql": "SELECT COUNT(*) FROM ledger_erp.receivable_ledger_events WHERE event_type = 'CREDIT_MEMO' AND fiscal_period = '2025-09'",
+    "category": "credits",
+    "answer_type": "scalar",
+    "expected_tables": [
+      "ledger_erp.receivable_ledger_events"
+    ],
+    "expected_values": [
+      "CREDIT_MEMO",
+      "2025-09"
+    ],
+    "behavior": "answer",
+    "sign_insensitive": false
+  },
+  {
+    "id": "N02",
+    "split": "heldout2",
+    "question": "What is the total tax amount in USD on invoices issued by legal entity AETH-UK in 2025?",
+    "expected": 207696.32,
+    "verification_sql": "SELECT SUM(tax_amount_usd) FROM ledger_erp.sales_invoices WHERE legal_entity_code = 'AETH-UK' AND fiscal_period LIKE '2025-%'",
+    "category": "tax",
+    "answer_type": "scalar",
+    "expected_tables": [
+      "ledger_erp.sales_invoices"
+    ],
+    "expected_values": [
+      "AETH-UK"
+    ],
+    "behavior": "answer",
+    "sign_insensitive": false
+  },
+  {
+    "id": "N03",
+    "split": "heldout2",
+    "question": "What is the average deal ARR in USD for Expansion deals?",
+    "expected": 286606.8182,
+    "verification_sql": "SELECT AVG(deal_arr_usd) FROM pipeline_crm.deal_opportunities WHERE deal_type = 'Expansion'",
+    "category": "crm",
+    "answer_type": "scalar",
+    "expected_tables": [
+      "pipeline_crm.deal_opportunities"
+    ],
+    "expected_values": [
+      "Expansion"
+    ],
+    "behavior": "answer",
+    "sign_insensitive": false
+  },
+  {
+    "id": "N04",
+    "split": "heldout2",
+    "question": "What is the total contracted ARR in USD by product line for snapshot period 2025-12?",
+    "expected": {
+      "Advisory Services": 2368800.0,
+      "Analytics Suite": 7746200.0,
+      "Cloud Platform": 3921100.0,
+      "Security Services": 3073300.0
+    },
+    "verification_sql": "SELECT n.canonical_label, SUM(m.contracted_arr_usd) FROM exec_reporting.monthly_revenue_posture m JOIN master_ref.taxonomy_nodes n ON n.node_id = m.product_line_node_id WHERE m.snapshot_period = '2025-12' GROUP BY n.canonical_label",
+    "category": "reporting",
+    "answer_type": "grouped",
+    "expected_tables": [
+      "exec_reporting.monthly_revenue_posture"
+    ],
+    "expected_values": [
+      "2025-12"
+    ],
+    "behavior": "answer",
+    "sign_insensitive": false
+  },
+  {
+    "id": "N05",
+    "split": "heldout2",
+    "question": "How many conglomerates have a credit risk rating of WATCH?",
+    "expected": 4,
+    "verification_sql": "SELECT COUNT(*) FROM master_ref.client_conglomerates WHERE credit_risk_rating = 'WATCH'",
+    "category": "identity",
+    "answer_type": "scalar",
+    "expected_tables": [
+      "master_ref.client_conglomerates"
+    ],
+    "expected_values": [
+      "WATCH"
+    ],
+    "behavior": "answer",
+    "sign_insensitive": false
+  },
+  {
+    "id": "N06",
+    "split": "heldout2",
+    "question": "What is the total open balance in USD of invoices for debtors with payment terms NET60?",
+    "expected": 1023748.48,
+    "verification_sql": "SELECT SUM(i.open_balance_usd) FROM ledger_erp.sales_invoices i JOIN ledger_erp.receivable_debtors d ON d.debtor_id = i.debtor_id WHERE d.payment_terms_code = 'NET60'",
+    "category": "cross_domain",
+    "answer_type": "scalar",
+    "expected_tables": [
+      "ledger_erp.sales_invoices",
+      "ledger_erp.receivable_debtors"
+    ],
+    "expected_values": [
+      "NET60"
+    ],
+    "behavior": "answer",
+    "sign_insensitive": false
+  },
+  {
+    "id": "N07",
+    "split": "heldout2",
+    "question": "What is the total target amount in USD for scenario FY2026_BASELINE_PLAN?",
+    "expected": 16839666.0,
+    "verification_sql": "SELECT SUM(target_amount_usd) FROM fpna_plan.financial_targets WHERE plan_scenario = 'FY2026_BASELINE_PLAN'",
+    "category": "budget",
+    "answer_type": "scalar",
+    "expected_tables": [
+      "fpna_plan.financial_targets"
+    ],
+    "expected_values": [
+      "FY2026_BASELINE_PLAN"
+    ],
+    "behavior": "answer",
+    "sign_insensitive": false
+  },
+  {
+    "id": "N08",
+    "split": "heldout2",
+    "question": "Who are the top 3 quota carriers by total weighted ARR in USD of their deals?",
+    "expected": {
+      "Riley Montague": 13825790.0,
+      "Logan Galloway": 5308875.0,
+      "Elliot Delacroix": 2549625.0
+    },
+    "verification_sql": "SELECT r.rep_full_name, SUM(o.weighted_arr_usd) s FROM pipeline_crm.deal_opportunities o JOIN pipeline_crm.quota_carriers r ON r.rep_id = o.owner_rep_id GROUP BY r.rep_full_name ORDER BY s DESC LIMIT 3",
+    "category": "cross_domain",
+    "answer_type": "grouped",
+    "expected_tables": [
+      "pipeline_crm.deal_opportunities",
+      "pipeline_crm.quota_carriers"
+    ],
+    "expected_values": [],
+    "behavior": "answer",
+    "sign_insensitive": false
+  },
+  {
+    "id": "N09",
+    "split": "heldout2",
+    "question": "How are we doing against plan this year?",
+    "expected": null,
+    "verification_sql": "-- ambiguous: which metric, which plan, which period",
+    "category": "ambiguity",
+    "answer_type": "scalar",
+    "expected_tables": [],
+    "expected_values": [],
+    "behavior": "flag_ambiguity",
+    "sign_insensitive": false
+  },
+  {
+    "id": "N10",
+    "split": "heldout2",
+    "question": "What is the total line net amount in USD of invoice items for the offering Managed Cloud Hosting?",
+    "expected": 2286108.78,
+    "verification_sql": "SELECT SUM(l.line_net_amount_usd) FROM ledger_erp.sales_invoice_items l JOIN ledger_erp.catalog_offerings c ON c.catalog_item_id = l.catalog_item_id WHERE c.offering_name = 'Managed Cloud Hosting'",
+    "category": "cross_domain",
+    "answer_type": "scalar",
+    "expected_tables": [
+      "ledger_erp.sales_invoice_items",
+      "ledger_erp.catalog_offerings"
+    ],
+    "expected_values": [
+      "Managed Cloud Hosting"
+    ],
+    "behavior": "answer",
+    "sign_insensitive": false
+  }
+]
