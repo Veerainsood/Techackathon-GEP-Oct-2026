@@ -1,11 +1,12 @@
 // Live version of components/Thread.tsx: same layout and styling, every value comes from /ask/stream events.
 import { AlertTriangle, Check, ChevronDown, ChevronRight, Copy, Download, GitMerge, Layers, ListChecks, RefreshCw, Share2, ThumbsUp, Zap } from 'lucide-react'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Composer } from '../components/Composer'
 import { Callout, SourceCard } from '../components/Thread'
 import { Cite, SectionLabel, SourceDot, Spinner, StatusPill } from '../components/ui'
 import type { Source } from '../data'
 import { manifestSource } from './adapter'
+import { Markdown } from './Markdown'
 import { api, type AskRequest, type ModelConfig, type RuntimeSource, type StreamEvent } from './api'
 
 type Row = Record<string, unknown>
@@ -40,8 +41,18 @@ interface Result {
   }
 }
 
+export interface Turn {
+  question: string
+  answer: string
+}
+
 interface Props {
-  request: AskRequest
+  request: AskRequest | null // null: reopened conversation, history only
+  history?: Turn[]
+  onConversation?: (conversationId: string, workspaceId: string | null) => void
+  onComplete?: (turn: Turn) => void
+  attachments?: string[]
+  onRemoveAttachment?: () => void
   onFollowUp: (q: string) => void
   onRerun: () => void
   headerRight?: React.ReactNode
@@ -77,15 +88,33 @@ const secs = (ms?: number) => (ms === undefined ? '' : ms < 1000 ? `${Math.round
 const modelName = (m: ModelConfig | null, k: 'explorer' | 'hercules' | 'adjudicator' | 'intent') =>
   m && m[k] ? (m[k]!.mode === 'llm' ? m[k]!.model ?? 'model' : 'deterministic rules') : k
 
-export function LiveThread({ request, onFollowUp, onRerun, headerRight, related, known, models, sourceCount, onAttach }: Props) {
+export function LiveThread({
+  request,
+  history = [],
+  onConversation,
+  onComplete,
+  attachments,
+  onRemoveAttachment,
+  onFollowUp,
+  onRerun,
+  headerRight,
+  related,
+  known,
+  models,
+  sourceCount,
+  onAttach,
+}: Props) {
   const [events, setEvents] = useState<StreamEvent[]>([])
   const [result, setResult] = useState<Result | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [stepsOpen, setStepsOpen] = useState(true)
   const [tab, setTab] = useState<Tab>('answer')
-  const query = request.question
+  const query = request?.question ?? history[0]?.question ?? ''
+  const callbacks = useRef({ onConversation, onComplete })
+  callbacks.current = { onConversation, onComplete }
 
   useEffect(() => {
+    if (!request) return
     const ctrl = new AbortController()
     setEvents([])
     setResult(null)
@@ -96,8 +125,13 @@ export function LiveThread({ request, onFollowUp, onRerun, headerRight, related,
       .askStream(
         request,
         (e) => {
-          if (e.event === 'result') setResult(e.result as Result)
-          else if (e.event === 'error') setError(String(e.error))
+          if (e.event === 'result') {
+            const r = e.result as Result
+            setResult(r)
+            callbacks.current.onComplete?.({ question: request.question, answer: r.answer })
+          } else if (e.event === 'conversation') {
+            callbacks.current.onConversation?.(String(e.conversation_id), (e.workspace_id as string | null) ?? null)
+          } else if (e.event === 'error') setError(String(e.error))
           else setEvents((prev) => [...prev, e])
         },
         ctrl.signal,
@@ -108,7 +142,7 @@ export function LiveThread({ request, onFollowUp, onRerun, headerRight, related,
     return () => ctrl.abort()
   }, [request])
 
-  const done = !!result || !!error
+  const done = !!result || !!error || !request
   useEffect(() => {
     if (!done) return
     const t = setTimeout(() => setStepsOpen(false), 600)
@@ -215,7 +249,18 @@ export function LiveThread({ request, onFollowUp, onRerun, headerRight, related,
 
       <div className="flex-1 overflow-y-auto scrollbar-thin">
         <div className="mx-auto max-w-[760px] px-6 pb-40 pt-8">
-          <h1 className="font-serif text-[32px] leading-tight tracking-tight">{query}</h1>
+          {/* earlier turns of this conversation */}
+          {history.map((t, i) => (
+            <div key={i} className="mb-8 border-b border-line pb-6">
+              <h2 className="font-serif text-[22px] leading-tight tracking-tight">{t.question}</h2>
+              <div className="mt-3 space-y-3 text-[15px] leading-[1.7] text-stone-800">
+                <Markdown text={t.answer} />
+              </div>
+            </div>
+          ))}
+          {request && (
+          <>
+          <h1 className="font-serif text-[32px] leading-tight tracking-tight">{request.question}</h1>
 
           {/* tabs */}
           <div className="mt-5 flex items-center gap-5 border-b border-line text-[13px]">
@@ -349,15 +394,7 @@ export function LiveThread({ request, onFollowUp, onRerun, headerRight, related,
                   </SectionLabel>
 
                   <div className="space-y-4 text-[15px] leading-[1.7] text-stone-800">
-                    <p>
-                      {result.answer.split('\n').map((line, i) => (
-                        <span key={i}>
-                          {i > 0 && <br />}
-                          {line}
-                        </span>
-                      ))}
-                      {cite > 0 && <Cite ids={[cite]} list={srcList} />}
-                    </p>
+                    <Markdown text={result.answer} tail={cite > 0 ? <Cite ids={[cite]} list={srcList} /> : undefined} />
                     {direct ? (
                       <p>
                         {route === 'clarify' ? (
@@ -574,6 +611,8 @@ export function LiveThread({ request, onFollowUp, onRerun, headerRight, related,
               ))}
             </div>
           )}
+          </>
+          )}
         </div>
       </div>
 
@@ -587,7 +626,15 @@ export function LiveThread({ request, onFollowUp, onRerun, headerRight, related,
               </span>
             </div>
           )}
-          <Composer compact onSubmit={onFollowUp} placeholder="Ask a follow-up or refine the goal…" sourceCount={sourceCount} onAttach={onAttach} />
+          <Composer
+            compact
+            onSubmit={onFollowUp}
+            placeholder="Ask a follow-up or refine the goal…"
+            sourceCount={sourceCount}
+            onAttach={onAttach}
+            attachments={attachments}
+            onRemoveAttachment={onRemoveAttachment}
+          />
         </div>
       </div>
     </div>

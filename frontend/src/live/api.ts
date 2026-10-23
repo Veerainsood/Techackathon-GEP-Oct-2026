@@ -134,6 +134,21 @@ export interface AskRequest {
   export_formats?: string[]
   workspace_id?: string | null
   sources?: string[] | null
+  conversation_id?: string | null
+}
+export interface ConversationRow {
+  conversation_id: string
+  title: string
+  files: { file_id: string; filename: string }[]
+  updated_at: string
+  messages: number
+}
+export interface ConversationMessage {
+  message_id: string
+  role: 'user' | 'assistant'
+  content: string
+  meta: Record<string, unknown>
+  created_at: string
 }
 export type StreamEvent = Record<string, unknown> & { event: string; agent?: string }
 
@@ -167,6 +182,11 @@ export const api = {
   investigations: () => request<Investigation[]>('/runtime/investigations'),
   answers: () => request<AnswerRow[]>('/runtime/answers'),
   files: () => request<StoredFile[]>('/files'),
+  conversations: () => request<ConversationRow[]>('/conversations'),
+  conversation: (id: string) =>
+    request<{ conversation: ConversationRow & { workspace_id?: string | null }; messages: ConversationMessage[] }>(
+      `/conversations/${encodeURIComponent(id)}`,
+    ),
   upload: async (files: File[]): Promise<StoredFile[]> => {
     const fd = new FormData()
     files.forEach((f) => fd.append('files', f))

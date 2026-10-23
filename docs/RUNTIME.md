@@ -76,6 +76,16 @@ When unsure, it chooses `investigate`. Without an LLM it uses deterministic rule
 
 Verified live: "what can you do?" was answered in 7 s and "What was our revenue last year?" got a clarifying question in 6 s. "Is Contoso Logistics a customer, which region?" was answered in 12 s with one lookup, labelled not dual-verified. "How many OVERDUE invoices?" went to both agents and came back 13, verified, in 46 s.
 
+## Conversations
+
+Every question belongs to a conversation, stored in PostgreSQL (`backend_runtime.conversations` and `backend_runtime.messages`; code in `backend/runtime/conversations.py`).
+
+* `/ask` and `/ask/stream` accept `conversation_id`. Without one, a new conversation is created and its id is returned (the stream sends it first as a `conversation` event).
+* The last six turns go to the intent agent. For data questions it writes a **standalone question** ("and its average price?" becomes "What is North Pit's average price…") that the agents and validators use; the UI still shows what the user typed.
+* A conversation remembers its attached files. Workspaces are held in memory, so after a restart the conversation's workspace is recreated from those files automatically.
+* `GET /conversations` lists the user's conversations, `GET /conversations/{id}` returns its messages and files, and `DELETE /conversations/{id}` removes it. Conversations are private to their tenant and user.
+* In the UI, the sidebar Library lists conversations; opening one shows its earlier turns, and follow-ups continue it. "New goal" starts a fresh conversation. Attached files show as chips in the chat box.
+
 ## Event contract (proposal)
 
 The contract is a **proposal to agree with the ingestion engineer**. The backend does not assume the producer already emits it. JSON Schema: [`docs/events/sync-event.v1.schema.json`](events/sync-event.v1.schema.json). Model: `backend/events/contracts.py`.

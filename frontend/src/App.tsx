@@ -9,8 +9,8 @@ import { Thread } from './components/Thread'
 import { initialActions, liveEvents, overnightRuns, type Action } from './data'
 import { NotificationButton, NotificationsPanel } from './components/NotificationsPanel'
 import { LIVE, toAction, toActivity, toFeed, toGoals, toSource, toTimeline, useLiveData } from './live/adapter'
-import { api, type AskRequest } from './live/api'
-import { LiveThread } from './live/LiveThread'
+import { api, type AskRequest, type ConversationRow } from './live/api'
+import { LiveThread, type Turn } from './live/LiveThread'
 
 // Questions the connected finance warehouse can answer (live mode Home / Related suggestions).
 const LIVE_EXAMPLES = [
@@ -36,6 +36,11 @@ export default function App() {
   const live = useLiveData(LIVE)
   const [request, setRequest] = useState<AskRequest | null>(null)
   const [workspace, setWorkspace] = useState<string | null>(null)
+  const [attachments, setAttachments] = useState<string[]>([])
+  const [conversationId, setConversationId] = useState<string | null>(null)
+  const [turns, setTurns] = useState<Turn[]>([]) // earlier turns of the open conversation
+  const [lastDone, setLastDone] = useState<Turn | null>(null) // the current question, once answered
+  const [conversations, setConversations] = useState<ConversationRow[]>([])
   const liveSources = useMemo(() => live.sources.map(toSource), [live.sources])
   const liveFeed = useMemo(() => toFeed(live.events, live.investigations), [live.events, live.investigations])
   const feed = LIVE ? liveFeed : demoFeed
@@ -99,10 +104,64 @@ export default function App() {
     }
   }, [])
 
+  useEffect(() => {
+    if (!LIVE) return
+    api.conversations().then(setConversations).catch(() => undefined)
+  }, [lastDone, conversationId])
+
+  // Follow-up in the open conversation.
   const ask = (q: string) => {
     setQuery(q)
-    if (LIVE) setRequest({ question: q, workspace_id: workspace })
+    if (LIVE) {
+      if (lastDone) setTurns((t) => [...t, lastDone])
+      setLastDone(null)
+      setRequest({ question: q, workspace_id: workspace, conversation_id: conversationId })
+    }
     setView('thread')
+  }
+
+  // A question from Home starts a new conversation (attachments made on Home come along).
+  const askNew = (q: string) => {
+    setQuery(q)
+    if (LIVE) {
+      setTurns([])
+      setLastDone(null)
+      setConversationId(null)
+      setRequest({ question: q, workspace_id: workspace, conversation_id: null })
+    }
+    setView('thread')
+  }
+
+  const newConversation = () => {
+    setConversationId(null)
+    setTurns([])
+    setLastDone(null)
+    setRequest(null)
+    setWorkspace(null)
+    setAttachments([])
+    setView('home')
+  }
+
+  const openConversation = async (index: number) => {
+    const row = conversations[index]
+    if (!row) return
+    try {
+      const { conversation, messages } = await api.conversation(row.conversation_id)
+      const pairs: Turn[] = []
+      for (let i = 0; i < messages.length; i++) {
+        if (messages[i].role === 'user')
+          pairs.push({ question: messages[i].content, answer: messages[i + 1]?.role === 'assistant' ? messages[i + 1].content : '' })
+      }
+      setConversationId(row.conversation_id)
+      setTurns(pairs)
+      setLastDone(null)
+      setRequest(null)
+      setWorkspace(conversation.workspace_id ?? null)
+      setAttachments((conversation.files ?? []).map((f) => f.filename))
+      setView('thread')
+    } catch (err) {
+      setToast(`Could not open conversation: ${err instanceof Error ? err.message : String(err)}`)
+    }
   }
 
   const attach = async (files: File[]) => {
@@ -111,7 +170,8 @@ export default function App() {
       const stored = await api.upload(files)
       const ws = await api.createWorkspace(stored.map((f) => f.file_id))
       setWorkspace(ws.workspace_id)
-      setToast(`${files.length} file${files.length > 1 ? 's' : ''} ready · next questions use ${ws.collections.join(', ')}`)
+      setAttachments(ws.files.map((f) => f.filename))
+      setToast(`${files.length} file${files.length > 1 ? 's' : ''} attached`)
     } catch (err) {
       setToast(`Upload failed: ${err instanceof Error ? err.message : String(err)}`)
     }
@@ -175,7 +235,7 @@ export default function App() {
       <Sidebar
         view={view}
         onNavigate={setView}
-        onNew={() => setView('home')}
+        onNew={LIVE ? newConversation : () => setView('home')}
         pendingCount={pendingCount}
         paused={paused}
         onTogglePause={() => {
@@ -183,15 +243,15 @@ export default function App() {
           setToast(paused ? 'Agent resumed' : 'Emergency stop: autonomous execution paused')
         }}
         hasThread={!!query}
-        recent={LIVE ? live.answers.slice(0, 6).map((a) => a.question) : undefined}
-        onRecent={LIVE ? ask : undefined}
+        recent={LIVE ? conversations.slice(0, 8).map((c) => c.title) : undefined}
+        onRecent={LIVE ? (_title, index) => openConversation(index) : undefined}
         watchSummary={LIVE ? `Autopilot on · ${live.sources.length} sources watched · ${live.answers.length} saved answers` : undefined}
       />
       <main className="relative min-w-0 flex-1">
         {view !== 'thread' && <div className="absolute right-5 top-3 z-10">{bell}</div>}
         {view === 'home' && (
           <Home
-            onSubmit={ask}
+            onSubmit={LIVE ? askNew : ask}
             pendingCount={pendingCount}
             paused={paused}
             handledLive={feed.filter((f) => f.handled !== 'escalated').length}
@@ -200,6 +260,15 @@ export default function App() {
             examples={LIVE ? LIVE_EXAMPLES : undefined}
             sourceCount={sourceCount}
             onAttach={LIVE ? attach : undefined}
+            attachments={LIVE ? attachments : undefined}
+            onRemoveAttachment={
+              LIVE
+                ? () => {
+                    setWorkspace(null)
+                    setAttachments([])
+                  }
+                : undefined
+            }
           />
         )}
         {view === 'autopilot' && (
@@ -215,13 +284,20 @@ export default function App() {
           />
         )}
         {view === 'thread' &&
-          (LIVE && request ? (
+          (LIVE && (request || turns.length > 0) ? (
             <LiveThread
               request={request}
+              history={turns}
+              onConversation={(id, ws) => {
+                setConversationId(id)
+                if (ws) setWorkspace(ws)
+              }}
+              onComplete={setLastDone}
+              attachments={attachments}
               onFollowUp={ask}
-              onRerun={() => setRequest({ ...request })}
+              onRerun={() => request && setRequest({ ...request })}
               headerRight={bell}
-              related={LIVE_EXAMPLES.filter((q) => q !== request.question)}
+              related={LIVE_EXAMPLES.filter((q) => q !== request?.question)}
               known={live.sources}
               models={live.models}
               sourceCount={sourceCount}

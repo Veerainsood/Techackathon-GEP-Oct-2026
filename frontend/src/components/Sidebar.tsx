@@ -26,7 +26,7 @@ interface Props {
   onTogglePause: () => void
   hasThread: boolean
   recent?: string[]
-  onRecent?: (q: string) => void
+  onRecent?: (q: string, index: number) => void
   watchSummary?: string
 }
 
@@ -165,7 +165,7 @@ export function Sidebar({ view, onNavigate, onNew, pendingCount, paused, onToggl
             {library.map((t, i) => (
               <button
                 key={`${t}-${i}`}
-                onClick={() => (onRecent ? onRecent(t) : i === 0 && hasThread && onNavigate('thread'))}
+                onClick={() => (onRecent ? onRecent(t, i) : i === 0 && hasThread && onNavigate('thread'))}
                 className="flex items-center gap-2 truncate rounded-lg px-3 py-1.5 text-left text-[13px] text-stone-600 hover:bg-white/60"
               >
                 <History size={13} className="shrink-0 text-stone-400" />

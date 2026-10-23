@@ -25,7 +25,7 @@ from backend.skills.tools import ToolBudgetExceeded, ToolSession
 
 CAPABILITIES: Dict[str, Any] = json.loads((Path(__file__).with_name("capabilities.json")).read_text(encoding="utf-8"))
 INTENT_TOOLS = ["discover_sources", "discover_collections", "describe_collection", "inspect_column", "search_column_values",
-                "explore_relationships", "lookup_knowledge", "execute_query"]
+                "sample_rows", "explore_relationships", "lookup_knowledge", "execute_query"]
 
 
 class IntentBrief(BaseModel):
@@ -42,6 +42,9 @@ class IntentDecision(BaseModel):
     clarifying_question: Optional[str] = Field(None, description="For route=clarify")
     options: List[str] = Field(default_factory=list, description="2-4 choices for route=clarify")
     brief: Optional[IntentBrief] = Field(None, description="For route=investigate")
+    standalone_question: Optional[str] = Field(
+        None, description="For route=investigate: the message rewritten to stand alone, resolving references to earlier turns "
+                          "or attached files (e.g. 'what about last year?' -> 'What was total invoiced revenue in 2024?')")
 
 
 SUBMIT = ToolSpec("submit_intent", "Submit how this message should be handled. Call exactly once.", IntentDecision.model_json_schema())
@@ -67,11 +70,16 @@ class IntentAgent:
         self.max_turns = max_turns
 
     def decide(self, question: str, session: ToolSession, freshness: List[Dict[str, Any]],
-               on_event: Optional[Callable[[Dict[str, Any]], None]] = None) -> Tuple[IntentDecision, Dict[str, Any]]:
-        """Returns the decision and metadata: mode, usage, whether a query was executed."""
+               on_event: Optional[Callable[[Dict[str, Any]], None]] = None, history: Optional[List[Dict[str, str]]] = None,
+               files: Optional[List[Dict[str, Any]]] = None) -> Tuple[IntentDecision, Dict[str, Any]]:
+        """Returns the decision and metadata: mode, usage, whether a query was executed.
+
+        ``history`` is the conversation so far (role/content, oldest first); ``files`` are the attached files.
+        """
         if self.llm is not None:
             try:
-                return asyncio.run(self._decide_llm(question, session, freshness, on_event or (lambda e: None)))
+                return asyncio.run(self._decide_llm(question, session, freshness, on_event or (lambda e: None),
+                                                    history or [], files or []))
             except Exception as exc:  # model unavailable or invalid output: fall back, and say so
                 decision, meta = self._decide_rules(question, session, freshness)
                 meta.update(mode="deterministic_fallback", failure=f"{type(exc).__name__}: {str(exc)[:200]}")
@@ -99,7 +107,8 @@ class IntentAgent:
 
     # ------------------------------------------------------------------ LLM
     async def _decide_llm(self, question: str, session: ToolSession, freshness: List[Dict[str, Any]],
-                          emit: Callable[[Dict[str, Any]], None]) -> Tuple[IntentDecision, Dict[str, Any]]:
+                          emit: Callable[[Dict[str, Any]], None], history: List[Dict[str, str]],
+                          files: List[Dict[str, Any]]) -> Tuple[IntentDecision, Dict[str, Any]]:
         from backend.agents.llm_agent import TOOL_SPECS, serialize_result
         from backend.agents.prompts import INTENT_SYSTEM
 
@@ -108,7 +117,13 @@ class IntentAgent:
         catalog = session.call("collection_catalog", objective="what data exists, for routing", phase="INTENT")
         lines = "\n".join(f"- {c['source_id']}:{c['collection']} | rows={c.get('rows')} | {str(c.get('summary', ''))[:100]}"
                           for c in catalog)
-        user = (f"Message: {question}\n\nCollection catalog:\n" + serialize_result("collection_catalog", {"collections": lines})
+        turns = "\n".join(f"{h['role']}: {h['content']}" for h in history)
+        attached = [{"filename": f.get("filename"), "collection": f.get("collection")} for f in files]
+        user = ((("Conversation so far (oldest first):\n" + serialize_result("conversation", {"turns": turns}) + "\n\n")
+                 if history else "")
+                + (("Files attached to this conversation (queryable as collections):\n"
+                    + serialize_result("attached_files", attached) + "\n\n") if attached else "")
+                + f"Message: {question}\n\nCollection catalog:\n" + serialize_result("collection_catalog", {"collections": lines})
                 + "\n\nSource freshness:\n" + serialize_result("freshness", freshness))
         messages: List[Dict[str, Any]] = [{"role": "user", "content": [{"type": "text", "text": user}]}]
         specs = [TOOL_SPECS[t] for t in INTENT_TOOLS] + [SUBMIT]

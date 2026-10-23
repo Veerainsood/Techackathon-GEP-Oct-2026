@@ -39,6 +39,8 @@ class BackendState(TypedDict, total=False):
     use_memory: bool
     export_formats: List[str]
     parsed: Dict[str, Any]
+    history: List[Dict[str, str]]
+    original_question: str
     intent: Dict[str, Any]
     sources: List[str]
     versions: Dict[str, str]
@@ -143,11 +145,18 @@ class DualPathWorkflow:
         freshness = [{"source_id": s.source_id, "name": s.name, "sync_status": versions.get(s.source_id, {}).get("sync_status", "no events yet"),
                       "last_sync_at": str(versions.get(s.source_id, {}).get("last_sync_at") or "") or None}
                      for s in self.e.gateway.sources(ctx)]
-        decision, meta = self.e.intent.decide(state["question"], session, freshness, on_event=emit)
+        decision, meta = self.e.intent.decide(state["question"], session, freshness, on_event=emit,
+                                              history=state.get("history") or [], files=ctx.manifest.get("workspace_files") or [])
         intent = {**decision.model_dump(mode="json"), **meta, "tool_calls": len(session.observations)}
-        emit({"agent": "Intent", "event": "decision", "route": decision.route, "reason": decision.reason, "mode": meta.get("mode")})
-        return {"intent": intent, "trace": _t("understand_intent", t0, route=decision.route, mode=meta.get("mode"),
-                                              tool_calls=len(session.observations))}
+        emit({"agent": "Intent", "event": "decision", "route": decision.route, "reason": decision.reason, "mode": meta.get("mode"),
+              "standalone_question": decision.standalone_question})
+        out: Dict[str, Any] = {"intent": intent, "trace": _t("understand_intent", t0, route=decision.route, mode=meta.get("mode"),
+                                                             tool_calls=len(session.observations))}
+        standalone = (decision.standalone_question or "").strip()
+        if decision.route == "investigate" and standalone and standalone != state["question"]:
+            # the agents and validators work on a question that makes sense without the conversation
+            out.update(question=standalone, original_question=state["question"])
+        return out
 
     def after_intent(self, state: BackendState) -> str:
         return "resolve_sources" if state.get("intent", {}).get("route", "investigate") == "investigate" else "respond"
@@ -482,7 +491,8 @@ class DualPathWorkflow:
         return g
 
     def run(self, question: str, ctx: AccessContext, mode: str = "dual", use_memory: bool = True,
-            export_formats: Optional[List[str]] = None, on_event=None, _retry: int = 1) -> Dict[str, Any]:
+            export_formats: Optional[List[str]] = None, on_event=None, history: Optional[List[Dict[str, str]]] = None,
+            _retry: int = 1) -> Dict[str, Any]:
         import copy
         import os
 
@@ -496,7 +506,7 @@ class DualPathWorkflow:
         try:
             state = self.graph.invoke({"request_id": request_id, "question": question, "tenant_id": ctx.tenant_id,
                                        "user_id": ctx.user_id, "mode": mode, "use_memory": use_memory,
-                                       "export_formats": export_formats or [], "trace": []},
+                                       "export_formats": export_formats or [], "history": history or [], "trace": []},
                                       config={"configurable": {"thread_id": request_id}})
         finally:
             self._contexts.pop(request_id, None)
@@ -514,7 +524,7 @@ class DualPathWorkflow:
             if on_event:
                 on_event({"event": "retry", "reason": "source version changed during the analysis without a consistent snapshot",
                           "moved_sources": state["consistency"]["moved_sources"]})
-            retried = self.run(question, ctx, mode, use_memory, export_formats, on_event, _retry=_retry - 1)
+            retried = self.run(question, ctx, mode, use_memory, export_formats, on_event, history, _retry=_retry - 1)
             retried["retried_from"] = request_id
             return retried
         return state

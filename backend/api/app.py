@@ -53,7 +53,8 @@ def result_payload(state: Dict[str, Any], question: str, include_candidates: boo
            "manifest": state.get("manifest"), "consistency": state.get("consistency"), "answer_id": state.get("answer_id"),
            "artifacts": state.get("artifacts", []), "exports": state.get("exports", []), "trace": state["trace"],
            "total_ms": state["total_ms"], "retried_from": state.get("retried_from"),
-           "intent": {k: (state.get("intent") or {}).get(k) for k in ("route", "reason", "mode", "options", "brief", "queried")},
+           "intent": {k: (state.get("intent") or {}).get(k) for k in ("route", "reason", "mode", "options", "brief", "queried",
+                                                                       "standalone_question")},
            "candidates_summary": {c["agent_name"]: {"mode": c["reasoning_mode"], "value": c["structured_value"], "sql": c["query_or_plan"],
                                                     "interpretation": c["interpreted_question"], "tool_calls": c["tool_calls_count"],
                                                     "llm_usage": c.get("llm_usage"), "failure": c.get("failure"),
@@ -77,6 +78,7 @@ class AskRequest(BaseModel):
     include_candidates: bool = False
     workspace_id: Optional[str] = None
     sources: Optional[List[str]] = None  # restrict the analysis to these authorized sources
+    conversation_id: Optional[str] = None  # continue a conversation; a new one is created when omitted
 
 
 class QueryRequest(BaseModel):
@@ -103,14 +105,79 @@ def _scoped(req: "AskRequest", ctx: AccessContext) -> AccessContext:
     return ctx
 
 
+def _conversation(req: AskRequest, ctx: AccessContext) -> Dict[str, Any]:
+    """Resolve the conversation for a question: its id, its workspace (recreated from its files after a restart) and history."""
+    from backend.runtime.conversations import ConversationNotFound
+
+    e = engine()
+    store = e.conversations
+    try:
+        conv = store.get(ctx.tenant_id, ctx.user_id, req.conversation_id) if req.conversation_id else None
+    except ConversationNotFound:
+        raise HTTPException(404, f"unknown conversation {req.conversation_id}")
+    cid = conv["conversation_id"] if conv else store.create(ctx.tenant_id, ctx.user_id, req.question)
+    ws_id = req.workspace_id or (conv or {}).get("workspace_id")
+    if ws_id:
+        try:
+            info = e.workspaces.get(ctx, ws_id)
+        except AccessDenied:
+            if req.workspace_id or not (conv or {}).get("file_ids"):
+                raise HTTPException(404, f"unknown workspace {ws_id}")
+            info = e.workspaces.create(ctx, conv["file_ids"])  # workspaces live in memory; files persist
+        ws_id = info["workspace_id"]
+        if ws_id != (conv or {}).get("workspace_id"):
+            store.set_workspace(cid, ws_id, info["files"])
+    return {"conversation_id": cid, "workspace_id": ws_id, "history": store.history(cid) if conv else []}
+
+
+def _record_turn(conv: Dict[str, Any], question: str, payload: Dict[str, Any]) -> None:
+    store = engine().conversations
+    store.add_message(conv["conversation_id"], "user", question)
+    store.add_message(conv["conversation_id"], "assistant", payload["answer"],
+                      {k: payload.get(k) for k in ("request_id", "answer_id", "verification_status", "selected_path")}
+                      | {"route": (payload.get("intent") or {}).get("route")})
+
+
 @app.post("/ask")
 def ask(req: AskRequest, ctx: AccessContext = Depends(access)) -> Dict[str, Any]:
+    conv = _conversation(req, ctx)
     try:
         state = engine().ask(req.question, ctx=_scoped(req, ctx), mode=req.mode, use_memory=req.use_memory,
-                             export_formats=req.export_formats, workspace_id=req.workspace_id)
+                             export_formats=req.export_formats, workspace_id=conv["workspace_id"], history=conv["history"])
     except AccessDenied as exc:
         raise HTTPException(403, str(exc))
-    return result_payload(state, req.question, req.include_candidates)
+    payload = result_payload(state, req.question, req.include_candidates) | {k: conv[k] for k in ("conversation_id", "workspace_id")}
+    _record_turn(conv, req.question, payload)
+    return payload
+
+
+@app.get("/conversations")
+def conversations(limit: int = 30, ctx: AccessContext = Depends(access)) -> List[Dict[str, Any]]:
+    return engine().conversations.list(ctx.tenant_id, ctx.user_id, limit)
+
+
+@app.get("/conversations/{conversation_id}")
+def conversation(conversation_id: str, ctx: AccessContext = Depends(access)) -> Dict[str, Any]:
+    from backend.runtime.conversations import ConversationNotFound
+
+    store = engine().conversations
+    try:
+        conv = store.get(ctx.tenant_id, ctx.user_id, conversation_id)
+    except ConversationNotFound:
+        raise HTTPException(404, f"unknown conversation {conversation_id}")
+    return {"conversation": {k: conv[k] for k in ("conversation_id", "title", "files", "workspace_id", "created_at", "updated_at")},
+            "messages": store.messages(conversation_id)}
+
+
+@app.delete("/conversations/{conversation_id}")
+def delete_conversation(conversation_id: str, ctx: AccessContext = Depends(access)) -> Dict[str, Any]:
+    from backend.runtime.conversations import ConversationNotFound
+
+    try:
+        engine().conversations.delete(ctx.tenant_id, ctx.user_id, conversation_id)
+    except ConversationNotFound:
+        raise HTTPException(404, f"unknown conversation {conversation_id}")
+    return {"deleted": conversation_id}
 
 
 @app.get("/sources")
@@ -194,12 +261,17 @@ def ask_stream(req: AskRequest, ctx: AccessContext = Depends(access)):
     from fastapi.responses import StreamingResponse
 
     q: "queue.Queue" = queue.Queue()
+    conv = _conversation(req, ctx)
+    q.put({"event": "conversation", "conversation_id": conv["conversation_id"], "workspace_id": conv["workspace_id"]})
 
     def work():
         try:
             state = engine().ask(req.question, ctx=_scoped(req, ctx), mode=req.mode, use_memory=req.use_memory,
-                                 export_formats=req.export_formats, workspace_id=req.workspace_id, on_event=q.put)
-            q.put({"event": "result", "result": result_payload(state, req.question)})
+                                 export_formats=req.export_formats, workspace_id=conv["workspace_id"], on_event=q.put,
+                                 history=conv["history"])
+            payload = result_payload(state, req.question) | {k: conv[k] for k in ("conversation_id", "workspace_id")}
+            _record_turn(conv, req.question, payload)
+            q.put({"event": "result", "result": payload})
         except Exception as exc:
             q.put({"event": "error", "error": f"{type(exc).__name__}: {exc}"})
         q.put(None)

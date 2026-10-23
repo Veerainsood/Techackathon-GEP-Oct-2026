@@ -56,6 +56,7 @@ class Engine:
     workspaces: Any = None
     llm_adjudicator: Any = None
     intent: Any = None
+    conversations: Any = None
     _ctx_cache: Dict[Tuple[str, str, bool], CompiledSemanticContext] = field(default_factory=dict)
     _lock: threading.Lock = field(default_factory=threading.Lock)
 
@@ -74,11 +75,13 @@ class Engine:
             return self._ctx_cache[key]
 
     def ask(self, question: str, ctx: Optional[AccessContext] = None, mode: str = "dual", use_memory: bool = True,
-            export_formats: Optional[List[str]] = None, workspace_id: Optional[str] = None, on_event=None) -> Dict[str, Any]:
+            export_formats: Optional[List[str]] = None, workspace_id: Optional[str] = None, on_event=None,
+            history: Optional[List[Dict[str, str]]] = None) -> Dict[str, Any]:
         ctx = ctx or self.default_ctx
         if workspace_id:
             ctx = self.workspaces.context(ctx, workspace_id)
-        return self.workflow.run(question, ctx, mode=mode, use_memory=use_memory, export_formats=export_formats, on_event=on_event)
+        return self.workflow.run(question, ctx, mode=mode, use_memory=use_memory, export_formats=export_formats, on_event=on_event,
+                                 history=history)
 
     def model_config(self) -> Dict[str, Any]:
         def describe(p):
@@ -228,5 +231,7 @@ def build_engine(settings: Optional[Settings] = None, register_defaults: bool = 
     engine.workspaces = WorkspaceManager(engine)
     engine.llm_adjudicator = LLMAdjudicator(adjudicator_llm, gateway) if adjudicator_llm else None
     engine.intent = IntentAgent(intent_llm)
+    from backend.runtime.conversations import ConversationStore
+    engine.conversations = ConversationStore(knowledge_uri)
     engine.workflow = DualPathWorkflow(engine)
     return engine
