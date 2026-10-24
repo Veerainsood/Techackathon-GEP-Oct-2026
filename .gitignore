@@ -14,8 +14,8 @@ exports/
 dba_ref.txt
 
 # generated skill references (regenerate with scripts/build_knowledge.py)
-udre/skills/database-investigation/references/
-udre/skills/database-investigation/generated/
-.udre_snapshots/
+backend/skills/database-investigation/references/
+backend/skills/database-investigation/generated/
+.backend_snapshots/
 
 README.md

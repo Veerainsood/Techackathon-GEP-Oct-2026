@@ -17,7 +17,7 @@ RecordBatch = dict[str, list[tuple[str, dict[str, Any]]]]
 
 @dataclass(frozen=True)
 class OutboxEvent:
-    """A sync event waiting to be delivered to UDRE. It is written in the same transaction as the run."""
+    """A sync event waiting to be delivered to the backend. It is written in the same transaction as the run."""
 
     event_id: str
     window_start: datetime
@@ -57,10 +57,10 @@ class KnowledgeStore(Protocol):
         """Return queued events not yet delivered or rejected, oldest first. Each item has event_id and body."""
 
     def mark_outbox_delivered(self, event_id: str) -> None:
-        """Record that UDRE accepted the event (or already had it)."""
+        """Record that the backend accepted the event (or already had it)."""
 
     def mark_outbox_attempt(self, event_id: str, error: str, rejected: bool) -> None:
-        """Record a failed delivery attempt. rejected=True means UDRE refused the event permanently."""
+        """Record a failed delivery attempt. rejected=True means the backend refused the event permanently."""
 
     def get_cursor(self, source_system: str, object_type: str) -> int | None:
         """Return the stored cursor (epoch milliseconds), or None if the object type has never been polled."""

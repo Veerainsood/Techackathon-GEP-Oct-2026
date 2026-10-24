@@ -13,7 +13,7 @@ CREATE SCHEMA IF NOT EXISTS pipeline_crm; -- Maps DBA domain: crm
 CREATE SCHEMA IF NOT EXISTS fpna_plan; -- Maps DBA domain: plan
 CREATE SCHEMA IF NOT EXISTS exec_reporting; -- Maps DBA domain: reporting
 CREATE SCHEMA IF NOT EXISTS data_ops; -- Maps DBA domain: ops
-CREATE SCHEMA IF NOT EXISTS udre_kg; -- Persistent Ontology & Knowledge Graph
+CREATE SCHEMA IF NOT EXISTS backend_kg; -- Persistent Ontology & Knowledge Graph
 
 -- Domain: contracts.document_sources -> agreements.repository_drives
 -- Purpose: Folders or cloud repositories where customer agreement files are scanned from.
@@ -1034,7 +1034,7 @@ CREATE INDEX IF NOT EXISTS idx_ingestion_batches_run_status ON data_ops.ingestio
 -- ============================================================================
 -- Ontology & Knowledge Graph Tables (PostgreSQL + pgvector)
 -- ============================================================================
-CREATE TABLE IF NOT EXISTS udre_kg.kg_nodes (
+CREATE TABLE IF NOT EXISTS backend_kg.kg_nodes (
     node_id VARCHAR(128) PRIMARY KEY,
     node_type VARCHAR(40) NOT NULL,
     label VARCHAR(255) NOT NULL,
@@ -1049,10 +1049,10 @@ CREATE TABLE IF NOT EXISTS udre_kg.kg_nodes (
     semantic_embedding vector(64)
 );
 
-CREATE TABLE IF NOT EXISTS udre_kg.kg_edges (
+CREATE TABLE IF NOT EXISTS backend_kg.kg_edges (
     edge_id VARCHAR(128) PRIMARY KEY,
-    source_node_id VARCHAR(128) NOT NULL REFERENCES udre_kg.kg_nodes(node_id),
-    target_node_id VARCHAR(128) NOT NULL REFERENCES udre_kg.kg_nodes(node_id),
+    source_node_id VARCHAR(128) NOT NULL REFERENCES backend_kg.kg_nodes(node_id),
+    target_node_id VARCHAR(128) NOT NULL REFERENCES backend_kg.kg_nodes(node_id),
     edge_type VARCHAR(40) NOT NULL,
     properties_json JSONB NOT NULL DEFAULT '{}'::jsonb,
     provenance VARCHAR(80) NOT NULL,

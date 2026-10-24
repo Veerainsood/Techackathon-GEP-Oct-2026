@@ -127,10 +127,10 @@
     "question": "Which are the top 5 conglomerates by total invoice subtotal in USD, excluding VOID invoices?",
     "expected": {
       "Wrenford Industries": 2530217.52,
-      "Vantage Holdings": 2404886.38,
+      "Contoso Logistics": 2404886.38,
       "Elmstead Mutual": 2134020.79,
       "Corvant Manufacturing": 1957300.33,
-      "Orchard Retail Co.": 1780269.29
+      "Woodgrove Bank": 1780269.29
     },
     "verification_sql": "SELECT c.conglomerate_name, SUM(i.subtotal_amount_usd) s FROM ledger_erp.sales_invoices i JOIN ledger_erp.receivable_debtors d ON d.debtor_id = i.debtor_id JOIN master_ref.client_conglomerates c ON c.conglomerate_id = d.conglomerate_id WHERE i.settlement_status <> 'VOID' GROUP BY c.conglomerate_name ORDER BY s DESC LIMIT 5",
     "category": "cross_domain",

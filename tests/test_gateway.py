@@ -1,8 +1,8 @@
 import pytest
 
-from udre.gateway import AccessContext, AccessDenied
-from udre.gateway.extensible_adapters import RestApiSourceAdapter
-from udre.gateway.sql_guard import UnsafeQueryError, analyze, assert_read_only, bound_rows
+from backend.gateway import AccessContext, AccessDenied
+from backend.gateway.extensible_adapters import RestApiSourceAdapter
+from backend.gateway.sql_guard import UnsafeQueryError, analyze, assert_read_only, bound_rows
 
 CTX = AccessContext()
 

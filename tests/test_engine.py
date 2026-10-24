@@ -5,22 +5,22 @@ from typing import Annotated, TypedDict
 import pandas as pd
 import pytest
 
-from udre.agents.planner import FilterSpec, JoinSpec, QueryPlan, compile_sql
-from udre.contracts.models import (
+from backend.agents.planner import FilterSpec, JoinSpec, QueryPlan, compile_sql
+from backend.contracts.models import (
     AgentReasoningCandidate,
     EdgeType,
     NodeType,
     ValidationFinding,
     VerificationStatus,
 )
-from udre.gateway.registry import AccessContext
-from udre.ontology.graph import PromotionRefused
-from udre.skills.tools import ToolBox, ToolBudgetExceeded, ToolSession
+from backend.gateway.registry import AccessContext
+from backend.ontology.graph import PromotionRefused
+from backend.skills.tools import ToolBox, ToolBudgetExceeded, ToolSession
 
 
 @pytest.fixture(scope="session")
 def engine(pg_uri, uploads_dir):
-    from udre.engine import build_engine
+    from backend.engine import build_engine
 
     e = build_engine()
     for sid in ("finance_pg", "uploads"):
@@ -29,7 +29,7 @@ def engine(pg_uri, uploads_dir):
 
 
 def _view(engine, colls):
-    from udre.agents.catalog import view_from_described
+    from backend.agents.catalog import view_from_described
 
     ctx = engine.default_ctx
     tb = ToolBox(engine.gateway, engine.kg, None, engine.settings.exports_dir)
@@ -64,7 +64,7 @@ def test_promotion_requires_deterministic_evidence(engine):
 
 
 def test_schema_change_marks_knowledge_stale(engine, tmp_path):
-    from udre.gateway.file_adapter import FileSourceAdapter
+    from backend.gateway.file_adapter import FileSourceAdapter
 
     ctx = AccessContext(tenant_id="t_schema_change")
     engine.kg.delete_tenant("t_schema_change")
@@ -242,7 +242,7 @@ def test_memory_learns_and_respects_tenant_boundaries(engine):
 
 
 def test_exports_all_formats(engine, tmp_path):
-    from udre.export import export_result
+    from backend.export import export_result
 
     rows = [{"status": "OPEN", "value": 1.5}, {"status": "PAID", "value": 0.0}]
     for fmt in ("csv", "excel", "json", "markdown"):
@@ -254,7 +254,7 @@ def test_exports_all_formats(engine, tmp_path):
 def test_api_endpoints(engine):
     from fastapi.testclient import TestClient
 
-    from udre.api import app as api
+    from backend.api import app as api
 
     original = api.engine
     api.engine = lambda: engine  # reuse the session engine

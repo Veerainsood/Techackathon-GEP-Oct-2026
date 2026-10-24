@@ -12,9 +12,11 @@ interface Props {
   examples?: string[]
   sourceCount?: number
   onAttach?: (files: File[]) => void
+  attachments?: string[]
+  onRemoveAttachment?: () => void
 }
 
-export function Home({ onSubmit, pendingCount, paused, handledLive, onOpenAutopilot, handledTotal, examples = suggestions, sourceCount, onAttach }: Props) {
+export function Home({ onSubmit, pendingCount, paused, handledLive, onOpenAutopilot, handledTotal, examples = suggestions, sourceCount, onAttach, attachments, onRemoveAttachment }: Props) {
   const hour = new Date().getHours()
   const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening'
 
@@ -35,7 +37,7 @@ export function Home({ onSubmit, pendingCount, paused, handledLive, onOpenAutopi
           <ArrowRight size={13} className="opacity-0 transition group-hover:opacity-100" />
         </button>
 
-        <Composer onSubmit={onSubmit} placeholder="Give the agent a new goal, or ask about anything it did…" sourceCount={sourceCount} onAttach={onAttach} />
+        <Composer onSubmit={onSubmit} placeholder="Give the agent a new goal, or ask about anything it did…" sourceCount={sourceCount} onAttach={onAttach} attachments={attachments} onRemoveAttachment={onRemoveAttachment} />
         <div className="mt-4 flex flex-wrap justify-center gap-2">
           {examples.map((s) => (
             <button

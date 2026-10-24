@@ -16,10 +16,12 @@ sys.path.insert(0, str(ROOT))
 
 import psycopg2  # noqa: E402
 
-from udre.synthetic.generator import SEED, SyntheticFinanceGenerator  # noqa: E402
-from udre.synthetic.ground_truth import FINANCIAL_INVARIANTS, build_benchmark  # noqa: E402
-from udre.synthetic.loader import export_files, get_postgres_uri, load_to_postgres  # noqa: E402
-from udre.synthetic.schema_spec import generate_postgresql_ddl, generate_schema_mapping_markdown  # noqa: E402
+from backend.synthetic.generator import SEED, SyntheticFinanceGenerator  # noqa: E402
+from backend.synthetic.ground_truth import FINANCIAL_INVARIANTS, build_benchmark  # noqa: E402
+from backend.synthetic.loader import export_files, get_postgres_uri, load_to_postgres  # noqa: E402
+from backend.synthetic.procurement import ProcurementGenerator  # noqa: E402
+from backend.synthetic.procurement import load as load_procurement  # noqa: E402
+from backend.synthetic.schema_spec import generate_postgresql_ddl, generate_schema_mapping_markdown  # noqa: E402
 
 
 def check_benchmark_sql(cur, bench) -> list[tuple[str, bool]]:
@@ -70,6 +72,14 @@ def main() -> int:
     if not args.skip_files:
         written = export_files(frames, str(ROOT / "data"))
         print(f"exported {len(written)} upload files to data/uploads")
+
+    # Procurement area (spend leakage): suppliers shared with existing customer groups are linked by conglomerate_id.
+    groups = {r["conglomerate_name"]: r["conglomerate_id"] for r in frames["master_ref.client_conglomerates"].to_dict("records")}
+    proc = ProcurementGenerator(groups=groups).generate()
+    counts = load_procurement(proc, uri)
+    (ROOT / "benchmark" / "leakage_answer_key.json").write_text(
+        json.dumps({"cases": proc.answer_key, "legitimate_exceptions": proc.exceptions}, indent=2, default=str), encoding="utf-8")
+    print(f"procurement: {counts} | {len(proc.answer_key)} seeded leakage cases, {len(proc.exceptions)} legitimate exceptions")
 
     conn = psycopg2.connect(uri)
     failures = 0

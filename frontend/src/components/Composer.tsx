@@ -15,9 +15,11 @@ interface Props {
   initial?: string
   sourceCount?: number
   onAttach?: (files: File[]) => void
+  attachments?: string[]
+  onRemoveAttachment?: () => void
 }
 
-export function Composer({ onSubmit, placeholder = 'Set a financial goal or ask anything…', compact, initial = '', sourceCount = 6, onAttach }: Props) {
+export function Composer({ onSubmit, placeholder = 'Set a financial goal or ask anything…', compact, initial = '', sourceCount = 6, onAttach, attachments = [], onRemoveAttachment }: Props) {
   const [value, setValue] = useState(initial)
   const fileRef = useRef<HTMLInputElement>(null)
   const [mode, setMode] = useState<(typeof modes)[number]>(modes[3])
@@ -31,6 +33,21 @@ export function Composer({ onSubmit, placeholder = 'Set a financial goal or ask 
 
   return (
     <div className="relative rounded-2xl border border-line bg-white shadow-[0_1px_2px_rgba(0,0,0,0.04),0_4px_16px_rgba(0,0,0,0.04)] transition focus-within:border-stone-300 focus-within:shadow-[0_1px_2px_rgba(0,0,0,0.04),0_8px_24px_rgba(0,0,0,0.06)]">
+      {attachments.length > 0 && (
+        <div className="flex flex-wrap items-center gap-1.5 px-4 pt-3">
+          {attachments.map((name) => (
+            <span key={name} className="flex items-center gap-1 rounded-md border border-line bg-stone-50 px-1.5 py-0.5 text-[11px] text-stone-600">
+              <Paperclip size={11} />
+              {name}
+            </span>
+          ))}
+          {onRemoveAttachment && (
+            <button onClick={onRemoveAttachment} title="Detach files" className="rounded px-1 text-[11px] text-stone-400 hover:text-ink">
+              ×
+            </button>
+          )}
+        </div>
+      )}
       <textarea
         value={value}
         onChange={(e) => setValue(e.target.value)}

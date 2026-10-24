@@ -9,11 +9,11 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from udre.agents.catalog import view_from_context  # noqa: E402
-from udre.agents.planner import SemanticPlanner, compile_sql, structured_value  # noqa: E402
-from udre.compiler.semantic_compiler import SemanticContextCompiler  # noqa: E402
-from udre.engine import build_engine  # noqa: E402
-from udre.ontology.builder import load_packs  # noqa: E402
+from backend.agents.catalog import view_from_context  # noqa: E402
+from backend.agents.planner import SemanticPlanner, compile_sql, structured_value  # noqa: E402
+from backend.compiler.semantic_compiler import SemanticContextCompiler  # noqa: E402
+from backend.engine import build_engine  # noqa: E402
+from backend.ontology.builder import load_packs  # noqa: E402
 
 
 def main() -> None:

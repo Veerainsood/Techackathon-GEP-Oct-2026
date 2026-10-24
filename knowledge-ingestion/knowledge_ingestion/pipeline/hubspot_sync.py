@@ -5,8 +5,8 @@ For each object type, the cursor is the newest modified time seen so far. The ne
 reads from the cursor minus a short overlap, so records HubSpot indexes late are not missed.
 Overlapping records are stored again as new snapshots, which is expected.
 
-When UDRE_EVENTS_URL is set, each run that changed something also queues a udre.sync-event.v1
-event in the same transaction, and the queued events are delivered to UDRE after the poll.
+When BACKEND_EVENTS_URL is set, each run that changed something also queues a backend.sync-event.v1
+event in the same transaction, and the queued events are delivered to the backend after the poll.
 """
 
 from __future__ import annotations
@@ -20,13 +20,14 @@ from typing import Any
 from knowledge_ingestion.config import config
 from knowledge_ingestion.connectors.hubspot.client import HubSpotClient, HubSpotRecord
 from knowledge_ingestion.connectors.hubspot.properties import MODIFIED_PROPERTY, OBJECT_PROPERTIES
-from knowledge_ingestion.publish.udre_events import (
+from knowledge_ingestion.publish.backend_events import (
     EPOCH,
     Change,
     build_failed_event,
     build_success_events,
     deliver_pending,
 )
+from knowledge_ingestion.publish import backend_prep
 from knowledge_ingestion.storage.base import KnowledgeStore, OutboxEvent, RecordBatch
 from knowledge_ingestion.storage.factory import get_store
 from knowledge_ingestion.storage.warehouse import get_warehouse
@@ -82,11 +83,11 @@ def sync_hubspot(store: KnowledgeStore | None = None) -> SyncResult:
 
 
 def _deliver_safely(store: KnowledgeStore) -> None:
-    """Send queued events to UDRE. A failure is logged and kept in the queue; it never changes the sync result."""
+    """Send queued events to the backend. A failure is logged and kept in the queue; it never changes the sync result."""
     try:
         deliver_pending(store, SOURCE_SYSTEM)
     except Exception:
-        logger.exception("Delivering sync events to UDRE failed; they stay queued")
+        logger.exception("Delivering sync events to the backend failed; they stay queued")
 
 
 def _log_batch(
@@ -108,7 +109,7 @@ def _log_batch(
 
 
 def _failure_events(run_id: int, window_start: datetime, window_end: datetime, error: str) -> list[OutboxEvent]:
-    if not config.udre.enabled:
+    if not config.backend.enabled:
         return []
     return [build_failed_event(run_id, window_start, window_end, error, datetime.now(timezone.utc))]
 
@@ -118,7 +119,7 @@ def _poll_once(store: KnowledgeStore) -> SyncResult:
     batch_id = collection_name(started_at)
     run_id = store.start_run(SOURCE_SYSTEM)
     # Events cover consecutive windows: each starts where the last queued event ended.
-    window_start = (store.last_outbox_window_end(SOURCE_SYSTEM) if config.udre.enabled else None) or EPOCH
+    window_start = (store.last_outbox_window_end(SOURCE_SYSTEM) if config.backend.enabled else None) or EPOCH
 
     records: dict[str, list[HubSpotRecord]] = {}
     new_cursors: dict[str, int] = {}
@@ -161,12 +162,29 @@ def _poll_once(store: KnowledgeStore) -> SyncResult:
         for object_type, items in records.items()
     }
     extracted = sum(len(items) for items in records.values())
-    outbox: list[OutboxEvent] = []
-    if config.udre.enabled:
-        outbox = build_success_events(run_id, window_start, started_at, changes, datetime.now(timezone.utc))
+    released_jobs: list[str] = []
     try:
+        # The backend's data-prep agent checks every batch before it reaches the warehouse. The raw snapshot below
+        # still stores what HubSpot sent.
+        to_load: dict[str, list[HubSpotRecord]] = {}
+        held: set[str] = set()
+        for object_type, items in records.items():
+            to_load[object_type], held_now = backend_prep.check_batch(object_type, items)
+            held |= held_now
+        for job in backend_prep.released():  # held earlier, now decided
+            to_load.setdefault(job.object_type, []).extend(job.records)
+            changes.extend((job.object_type, "update", r.id) for r in job.records)
+            released_jobs.append(job.job_id)
         # Warehouse first, then our raw snapshot. Both are upserts or appends, so a retry is safe.
-        get_warehouse().load(batch_id, records, started_at)
+        account_changes = get_warehouse().load(batch_id, to_load, started_at)
+        outbox: list[OutboxEvent] = []
+        if config.backend.enabled:
+            # Contacts are keyed by their HubSpot id. Companies are reported as the warehouse accounts the load
+            # created or changed (linked companies keep their existing CRM account id, not the HubSpot id).
+            event_changes = [change for change in changes if change[0] == "contacts" and change[2] not in held] + [
+                ("companies", op, account_id) for account_id, op in sorted(account_changes.items())
+            ]
+            outbox = build_success_events(run_id, window_start, started_at, event_changes, datetime.now(timezone.utc))
         store.save_snapshot(run_id, SOURCE_SYSTEM, started_at, batch, cursors=new_cursors, outbox=outbox)
     except Exception as error:
         message = f"{type(error).__name__}: {error}"
@@ -174,6 +192,11 @@ def _poll_once(store: KnowledgeStore) -> SyncResult:
         _log_batch(batch_id, started_at, "FAILED", extracted, 0, message)
         raise
 
+    for job_id in released_jobs:
+        try:
+            backend_prep.ack(job_id)
+        except Exception:
+            logger.exception("Could not acknowledge released batch %s; it will be loaded again (loads are upserts)", job_id)
     finished_at = datetime.now(timezone.utc)
     _log_batch(batch_id, started_at, "SUCCEEDED", extracted, extracted, None, finished_at)
     return SyncResult(

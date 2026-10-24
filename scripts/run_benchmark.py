@@ -15,9 +15,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from udre.engine import build_engine  # noqa: E402
-from udre.evaluation.benchmark import evaluate  # noqa: E402
-from udre.gateway.registry import AccessContext  # noqa: E402
+from backend.engine import build_engine  # noqa: E402
+from backend.evaluation.benchmark import evaluate  # noqa: E402
+from backend.gateway.registry import AccessContext  # noqa: E402
 
 
 def load(split: str):

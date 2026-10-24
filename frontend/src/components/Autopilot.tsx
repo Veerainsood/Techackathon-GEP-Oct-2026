@@ -14,6 +14,8 @@ interface Props {
   goals?: StandingGoal[]
   handledTotal?: number
   sourceCount?: number
+  kpis?: { l: string; v: string; c: string }[]
+  onGoal?: (g: StandingGoal) => void
 }
 
 const handledStyle = {
@@ -22,7 +24,18 @@ const handledStyle = {
   blocked: { label: 'Blocked', cls: 'bg-orange-50 text-orange-700 ring-orange-200', icon: OctagonX },
 }
 
-export function AutopilotPage({ onSubmit, pendingCount, paused, feed, onOpenAction, goals = standingGoals, handledTotal, sourceCount = 6 }: Props) {
+export function AutopilotPage({
+  onSubmit,
+  pendingCount,
+  paused,
+  feed,
+  onOpenAction,
+  goals = standingGoals,
+  handledTotal,
+  sourceCount = 6,
+  kpis = [],
+  onGoal,
+}: Props) {
   const handledLive = feed.filter((f) => f.handled !== 'escalated').length
   return (
     <div className="h-full overflow-y-auto px-6 scrollbar-thin">
@@ -36,6 +49,7 @@ export function AutopilotPage({ onSubmit, pendingCount, paused, feed, onOpenActi
             { l: 'Status', v: paused ? 'Paused' : 'Running', c: paused ? 'text-rose-700' : 'text-emerald-700' },
             { l: 'Handled on its own today', v: String(handledTotal ?? awaySummary.handled + handledLive), c: 'text-ink' },
             { l: 'Escalated to people', v: String(pendingCount), c: 'text-amber-700' },
+            ...kpis,
           ].map((k) => (
             <div key={k.l} className="rounded-xl border border-line bg-white px-4 py-3">
               <div className="text-[11px] text-muted">{k.l}</div>
@@ -54,7 +68,7 @@ export function AutopilotPage({ onSubmit, pendingCount, paused, feed, onOpenActi
               {goals.map((g) => (
                 <button
                   key={g.id}
-                  onClick={() => goals === standingGoals && g.id === 'G-1' && onSubmit(suggestions[0])}
+                  onClick={() => (onGoal ? onGoal(g) : goals === standingGoals && g.id === 'G-1' && onSubmit(suggestions[0]))}
                   className="w-full rounded-xl border border-line bg-white p-3.5 text-left transition hover:border-stone-300"
                 >
                   <div className="flex items-start justify-between gap-2">

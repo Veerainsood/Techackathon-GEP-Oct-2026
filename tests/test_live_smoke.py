@@ -1,7 +1,7 @@
 """LIVE smoke tests against the configured Microsoft Foundry deployments (and Daytona if DAYTONA_API_KEY is set).
 
-Skipped unless UDRE_LIVE_SMOKE=1.  They spend real model tokens.  Run:
-    $env:UDRE_LIVE_SMOKE=1; python -m pytest tests/test_live_smoke.py -q -s
+Skipped unless BACKEND_LIVE_SMOKE=1.  They spend real model tokens.  Run:
+    $env:BACKEND_LIVE_SMOKE=1; python -m pytest tests/test_live_smoke.py -q -s
 """
 
 import json
@@ -9,20 +9,20 @@ import os
 
 import pytest
 
-pytestmark = pytest.mark.skipif(os.environ.get("UDRE_LIVE_SMOKE") != "1", reason="live smoke tests are opt-in (UDRE_LIVE_SMOKE=1)")
+pytestmark = pytest.mark.skipif(os.environ.get("BACKEND_LIVE_SMOKE") != "1", reason="live smoke tests are opt-in (BACKEND_LIVE_SMOKE=1)")
 
 
 @pytest.fixture(scope="module")
 def live_engine(pg_uri, uploads_dir):
-    from udre.config import Settings
-    from udre.engine import build_engine
+    from backend.config import Settings
+    from backend.engine import build_engine
 
-    os.environ["UDRE_REASONING_MODE"] = "llm"
+    os.environ["BACKEND_REASONING_MODE"] = "llm"
     s = Settings()
     s.reasoning_mode = "llm"
     e = build_engine(s)
     yield e
-    os.environ["UDRE_REASONING_MODE"] = "offline"
+    os.environ["BACKEND_REASONING_MODE"] = "offline"
 
 
 def test_live_models_are_the_configured_foundry_deployments(live_engine):
@@ -32,7 +32,7 @@ def test_live_models_are_the_configured_foundry_deployments(live_engine):
 
 
 def test_live_dual_path_with_gpt_adjudication(live_engine):
-    from udre.gateway.registry import AccessContext
+    from backend.gateway.registry import AccessContext
 
     q = "What is the total gross invoice amount in USD for invoices billed in EUR currency?"
     events = []

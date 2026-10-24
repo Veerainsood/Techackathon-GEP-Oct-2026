@@ -1,4 +1,4 @@
-"""Guardrails and approval queue, against the UDRE knowledge database. Each test uses its own tenant.
+"""Guardrails and approval queue, against the backend knowledge database. Each test uses its own tenant.
 
 Run from the repository root:  python -m pytest tests/test_governance.py -v
 """
@@ -8,8 +8,8 @@ from typing import Iterator
 
 import pytest
 
-from udre.config import Settings, pg_uri
-from udre.governance.store import (
+from backend.config import Settings, pg_uri
+from backend.governance.store import (
     DEFAULT_GUARDRAILS,
     ApprovalConflict,
     GovernanceStore,
@@ -23,8 +23,8 @@ def store() -> GovernanceStore:
 
 
 def _purge(store: GovernanceStore, tenant_id: str) -> None:
-    store._exec("DELETE FROM udre_runtime.approvals WHERE tenant_id = %s", (tenant_id,))
-    store._exec("DELETE FROM udre_runtime.guardrails WHERE tenant_id = %s", (tenant_id,))
+    store._exec("DELETE FROM backend_runtime.approvals WHERE tenant_id = %s", (tenant_id,))
+    store._exec("DELETE FROM backend_runtime.guardrails WHERE tenant_id = %s", (tenant_id,))
 
 
 @pytest.fixture

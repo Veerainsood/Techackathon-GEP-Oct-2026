@@ -1,9 +1,9 @@
-// Live client for the UDRE FastAPI backend. Every UI element in live mode is driven by these calls.
-export const API_BASE: string = (import.meta.env.VITE_UDRE_API as string | undefined) ?? 'http://localhost:8000'
+// Live client for the backend FastAPI backend. Every UI element in live mode is driven by these calls.
+export const API_BASE: string = (import.meta.env.VITE_BACKEND_API as string | undefined) ?? 'http://localhost:8000'
 
 export const identity = {
-  tenant: localStorage.getItem('udre.tenant') ?? ((import.meta.env.VITE_UDRE_TENANT as string | undefined) ?? 'default'),
-  user: localStorage.getItem('udre.user') ?? ((import.meta.env.VITE_UDRE_USER as string | undefined) ?? 'analyst'),
+  tenant: localStorage.getItem('backend.tenant') ?? ((import.meta.env.VITE_BACKEND_TENANT as string | undefined) ?? 'default'),
+  user: localStorage.getItem('backend.user') ?? ((import.meta.env.VITE_BACKEND_USER as string | undefined) ?? 'analyst'),
 }
 
 function headers(extra: Record<string, string> = {}): Record<string, string> {
@@ -33,6 +33,7 @@ export interface ModelConfig {
   explorer: ModelInfo
   hercules: ModelInfo
   adjudicator: ModelInfo
+  intent?: ModelInfo
   sandbox: string
 }
 export interface RuntimeSource {
@@ -133,6 +134,56 @@ export interface AskRequest {
   export_formats?: string[]
   workspace_id?: string | null
   sources?: string[] | null
+  conversation_id?: string | null
+}
+export interface PrepJob {
+  job_id: string
+  status: string
+  filename: string
+  input_file_id: string
+  checked_file_id: string | null
+  summary?: string | null
+  findings: { title: string; detail: string; severity: string }[]
+  applied: number
+  pending: number
+  rows?: number | null
+}
+export interface LeakageCase {
+  case_id: string
+  leakage_type: string
+  type_label: string
+  record_id: string
+  supplier_name: string | null
+  recoverable_usd: number
+  confidence: number
+  priority_score: number
+  root_cause: string
+  status: 'open' | 'awaiting_approval' | 'executed' | 'dismissed' | 'resolved'
+  recovery: { request_id?: string; status?: string; request_type?: string } | null
+  first_seen: string
+}
+export interface LeakageSummary {
+  cases: number
+  recoverable_usd: number
+  awaiting_approval: number
+  executed: number
+  recovered_usd: number
+  dismissed: number
+  by_type: Record<string, { label: string; cases: number; recoverable_usd: number; open: number; executed: number }>
+}
+export interface ConversationRow {
+  conversation_id: string
+  title: string
+  files: { file_id: string; filename: string }[]
+  updated_at: string
+  messages: number
+}
+export interface ConversationMessage {
+  message_id: string
+  role: 'user' | 'assistant'
+  content: string
+  meta: Record<string, unknown>
+  created_at: string
 }
 export type StreamEvent = Record<string, unknown> & { event: string; agent?: string }
 
@@ -166,6 +217,17 @@ export const api = {
   investigations: () => request<Investigation[]>('/runtime/investigations'),
   answers: () => request<AnswerRow[]>('/runtime/answers'),
   files: () => request<StoredFile[]>('/files'),
+  conversations: () => request<ConversationRow[]>('/conversations'),
+  leakageSummary: () => request<LeakageSummary>('/leakage/summary'),
+  leakageCases: () => request<LeakageCase[]>('/leakage/cases'),
+  deleteConversation: (id: string) => request<{ deleted: string }>(`/conversations/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  // Every upload is checked by the data-prep agent in the sandbox before questions use it.
+  prepFiles: (fileIds: string[]) =>
+    request<PrepJob[]>('/prep/files', { method: 'POST', headers: json, body: JSON.stringify({ file_ids: fileIds }) }),
+  conversation: (id: string) =>
+    request<{ conversation: ConversationRow & { workspace_id?: string | null }; messages: ConversationMessage[] }>(
+      `/conversations/${encodeURIComponent(id)}`,
+    ),
   upload: async (files: File[]): Promise<StoredFile[]> => {
     const fd = new FormData()
     files.forEach((f) => fd.append('files', f))

@@ -3,9 +3,9 @@ import hashlib
 import psycopg2
 import pytest
 
-from udre.synthetic.generator import SyntheticFinanceGenerator
-from udre.synthetic.ground_truth import FINANCIAL_INVARIANTS, build_benchmark
-from udre.synthetic.schema_spec import SYNTHETIC_SCHEMAS, generate_postgresql_ddl, get_all_39_table_definitions
+from backend.synthetic.generator import SyntheticFinanceGenerator
+from backend.synthetic.ground_truth import FINANCIAL_INVARIANTS, build_benchmark
+from backend.synthetic.schema_spec import SYNTHETIC_SCHEMAS, generate_postgresql_ddl, get_all_39_table_definitions
 
 
 def _digest(frames):
@@ -51,8 +51,15 @@ def test_edge_cases_present(generator):
 
 
 def test_ground_truth_matches_verification_sql(generator, pg_uri):
+    # The live warehouse keeps changing (HubSpot sync writes CRM rows and batch logs), so the expected answers are
+    # checked against a fresh copy of the generated data.
+    from backend import pg_embedded
+    from backend.synthetic.loader import load_to_postgres
+
+    pristine = pg_embedded.ensure_database("backend_dataset_check")
+    load_to_postgres(generator.frames, pristine)
     bench = build_benchmark(generator)
-    with psycopg2.connect(pg_uri) as conn, conn.cursor() as cur:
+    with psycopg2.connect(pristine) as conn, conn.cursor() as cur:
         for q in bench:
             if q["behavior"] != "answer":
                 continue

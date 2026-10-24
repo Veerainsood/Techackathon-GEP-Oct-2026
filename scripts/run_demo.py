@@ -14,10 +14,10 @@ sys.path.insert(0, str(ROOT))
 
 import psycopg2  # noqa: E402
 
-from udre.engine import build_engine  # noqa: E402
-from udre.gateway.registry import AccessContext  # noqa: E402
-from udre.synthetic.generator import SyntheticFinanceGenerator  # noqa: E402
-from udre.synthetic.loader import export_files, get_postgres_uri, load_to_postgres  # noqa: E402
+from backend.engine import build_engine  # noqa: E402
+from backend.gateway.registry import AccessContext  # noqa: E402
+from backend.synthetic.generator import SyntheticFinanceGenerator  # noqa: E402
+from backend.synthetic.loader import export_files, get_postgres_uri, load_to_postgres  # noqa: E402
 
 QUESTIONS = [
     ("finance_pg + uploads", None, "What is the total open balance in USD by settlement status?"),

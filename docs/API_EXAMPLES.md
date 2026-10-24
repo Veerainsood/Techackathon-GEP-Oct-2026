@@ -2,7 +2,7 @@
 
 Captured from real calls against the running engine (`python scripts/generate_api_examples.py`). Long lists are truncated.
 
-Start the server with `uvicorn udre.api.app:app --port 8000`. Identity headers: `X-Tenant-Id`, `X-User-Id`.
+Start the server with `uvicorn backend.api.app:app --port 8000`. Identity headers: `X-Tenant-Id`, `X-User-Id`.
 
 ## GET /health
 

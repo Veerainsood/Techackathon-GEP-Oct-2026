@@ -2,9 +2,9 @@
 generate skill reference files, build the ontology, run both agents, inspect live query outputs, adjudicate,
 answer with lineage and provenance, and export.
 
-The HubSpot and Intune APIs are the deterministic MOCK fixtures in udre/ingestion/mocks.py unless real
-credentials are configured with --live (UDRE_HUBSPOT_ACCESS_TOKEN / UDRE_INTUNE_* variables).
-Reasoning uses the configured LLM if UDRE_LLM_* is set; otherwise the explicit deterministic offline mode.
+The HubSpot and Intune APIs are the deterministic MOCK fixtures in backend/ingestion/mocks.py unless real
+credentials are configured with --live (BACKEND_HUBSPOT_ACCESS_TOKEN / BACKEND_INTUNE_* variables).
+Reasoning uses the configured LLM if BACKEND_LLM_* is set; otherwise the explicit deterministic offline mode.
 
 Usage: python scripts/run_phase2_demo.py [--live]
 """
@@ -19,11 +19,11 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from udre.engine import build_engine  # noqa: E402
-from udre.gateway.registry import AccessContext  # noqa: E402
-from udre.ingestion.hubspot import HubSpotSourceAdapter  # noqa: E402
-from udre.ingestion.intune import MicrosoftIntuneSourceAdapter  # noqa: E402
-from udre.ingestion.mocks import MockGraphAPI, MockHubSpotAPI  # noqa: E402
+from backend.engine import build_engine  # noqa: E402
+from backend.gateway.registry import AccessContext  # noqa: E402
+from backend.ingestion.hubspot import HubSpotSourceAdapter  # noqa: E402
+from backend.ingestion.intune import MicrosoftIntuneSourceAdapter  # noqa: E402
+from backend.ingestion.mocks import MockGraphAPI, MockHubSpotAPI  # noqa: E402
 
 TENANT = "demo"
 

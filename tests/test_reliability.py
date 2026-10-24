@@ -2,14 +2,14 @@
 
 import pytest
 
-from udre.agents.planner import QueryPlan
-from udre.contracts.models import AgentReasoningCandidate, ValidationFinding, VerificationStatus
-from udre.verification.validators import candidate_completeness
+from backend.agents.planner import QueryPlan
+from backend.contracts.models import AgentReasoningCandidate, ValidationFinding, VerificationStatus
+from backend.verification.validators import candidate_completeness
 
 
 @pytest.fixture(scope="module")
 def engine(pg_uri, uploads_dir):
-    from udre.engine import build_engine
+    from backend.engine import build_engine
 
     return build_engine(llm_providers=(None, None))
 
@@ -71,8 +71,8 @@ def test_candidate_completeness():
 
 
 def test_coverage_validator_flags_unbound_measure_terms(engine):
-    from udre.agents.catalog import view_from_described
-    from udre.skills.tools import ToolBox
+    from backend.agents.catalog import view_from_described
+    from backend.skills.tools import ToolBox
 
     ctx = engine.default_ctx
     tb = ToolBox(engine.gateway, engine.kg, None, engine.settings.exports_dir)

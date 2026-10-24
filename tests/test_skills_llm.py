@@ -9,19 +9,19 @@ import httpx
 import pandas as pd
 import pytest
 
-from udre.agents.llm_agent import serialize_result
-from udre.agents.planner import plan_from_sql
-from udre.gateway.registry import AccessContext, AccessDenied
-from udre.llm.base import LLMResponse, LLMUnavailable, ToolSpec, Usage
-from udre.llm.providers import AnthropicMessagesProvider, OpenAIChatProvider
-from udre.llm.scripted import ScriptedProvider, last_tool_result, tool
+from backend.agents.llm_agent import serialize_result
+from backend.agents.planner import plan_from_sql
+from backend.gateway.registry import AccessContext, AccessDenied
+from backend.llm.base import LLMResponse, LLMUnavailable, ToolSpec, Usage
+from backend.llm.providers import AnthropicMessagesProvider, OpenAIChatProvider
+from backend.llm.scripted import ScriptedProvider, last_tool_result, tool
 
 D03_SQL = "SELECT SUM(gross_total_usd) AS value FROM ledger_erp.sales_invoices WHERE doc_currency = 'EUR'"
 
 
 @pytest.fixture(scope="module")
 def engine(pg_uri, uploads_dir):
-    from udre.engine import build_engine
+    from backend.engine import build_engine
 
     e = build_engine(llm_providers=(None, None))
     for sid in ("finance_pg", "uploads"):
@@ -37,7 +37,8 @@ def _expected(split, qid):
 def test_every_collection_has_a_versioned_reference(engine):
     tb = engine.toolbox()
     ctxs = tb.list_collection_contexts(engine.default_ctx, "finance_pg")
-    assert len(ctxs) == 39 and len({c["context_version"] for c in ctxs}) == 1
+    core = [c for c in ctxs if not c["collection"].startswith("procurement.")]  # procurement exists once it is loaded
+    assert len(core) == 39 and len({c["context_version"] for c in ctxs}) == 1
     doc = tb.load_collection_context(engine.default_ctx, "finance_pg", "ledger_erp.sales_invoices", include_value_profile=True)
     text = doc["content"]
     assert doc["trust"] == "untrusted_data" and f'context_version: "{doc["context_version"]}"' in text
@@ -54,7 +55,8 @@ def test_progressive_loading_respects_permissions(engine):
     tb = engine.toolbox()
     restricted = AccessContext(denied_collections={"finance_pg:portal_app.thread_utterances"})
     names = {c["collection"] for c in tb.list_collection_contexts(restricted, "finance_pg")}
-    assert "portal_app.thread_utterances" not in names and len(names) == 38
+    everything = {c["collection"] for c in tb.list_collection_contexts(engine.default_ctx, "finance_pg")}
+    assert "portal_app.thread_utterances" not in names and names == everything - {"portal_app.thread_utterances"}
     with pytest.raises(AccessDenied):
         tb.load_collection_context(restricted, "finance_pg", "portal_app.thread_utterances")
     with pytest.raises(AccessDenied):
@@ -63,7 +65,7 @@ def test_progressive_loading_respects_permissions(engine):
 
 
 def test_schema_change_regenerates_atomically_and_masks_pii(engine, tmp_path):
-    from udre.gateway.file_adapter import FileSourceAdapter
+    from backend.gateway.file_adapter import FileSourceAdapter
 
     tenant = "t_skill_gen"
     ctx = AccessContext(tenant_id=tenant)
@@ -121,8 +123,8 @@ def explorer_policy(system, messages, tools):
 
 
 def test_explorer_llm_loop_selects_tools_and_revises(engine):
-    from udre.agents.explorer import ExplorerAgent
-    from udre.skills.tools import ToolSession
+    from backend.agents.explorer import ExplorerAgent
+    from backend.skills.tools import ToolSession
 
     provider = ScriptedProvider(explorer_policy)
     agent = ExplorerAgent(engine.packs, llm=provider)
@@ -142,8 +144,8 @@ def test_explorer_llm_loop_selects_tools_and_revises(engine):
 
 
 def test_loop_enforces_gap_budget_and_validates_submissions(engine):
-    from udre.agents.llm_agent import TOOL_SPECS, LLMInvestigation
-    from udre.skills.tools import ToolSession
+    from backend.agents.llm_agent import TOOL_SPECS, LLMInvestigation
+    from backend.skills.tools import ToolSession
 
     def policy(system, messages, tools):
         step = sum(1 for m in messages if m["role"] == "assistant")
@@ -184,7 +186,7 @@ def hercules_policy(system, messages, tools):
 
 
 def test_dual_path_with_llm_agents_is_independent(engine):
-    from udre.engine import build_engine
+    from backend.engine import build_engine
 
     exp, her = ScriptedProvider(explorer_policy), ScriptedProvider(hercules_policy)
     e2 = build_engine(llm_providers=(exp, her))
@@ -201,8 +203,8 @@ def test_dual_path_with_llm_agents_is_independent(engine):
 
 
 def test_llm_outage_falls_back_explicitly(engine):
-    from udre.agents.explorer import ExplorerAgent
-    from udre.skills.tools import ToolSession
+    from backend.agents.explorer import ExplorerAgent
+    from backend.skills.tools import ToolSession
 
     def down(system, messages, tools):
         raise LLMUnavailable("HTTP 401")
@@ -259,12 +261,12 @@ def test_openai_provider_translates_tool_calls():
 
 
 def test_offline_mode_without_configuration(monkeypatch):
-    from udre.llm.config import LLMSettings, build_provider
+    from backend.llm.config import LLMSettings, build_provider
 
-    for k in ("UDRE_LLM_BASE_URL", "UDRE_LLM_API_KEY", "UDRE_LLM_MODEL", "UDRE_LLM_PROVIDER", "UDRE_FOUNDRY_ENDPOINT",
-              "UDRE_FOUNDRY_API_KEY", "UDRE_EXPLORER_LLM_MODEL"):
+    for k in ("BACKEND_LLM_BASE_URL", "BACKEND_LLM_API_KEY", "BACKEND_LLM_MODEL", "BACKEND_LLM_PROVIDER", "BACKEND_FOUNDRY_ENDPOINT",
+              "BACKEND_FOUNDRY_API_KEY", "BACKEND_EXPLORER_LLM_MODEL"):
         monkeypatch.delenv(k, raising=False)
-    monkeypatch.setenv("UDRE_IGNORE_DOTENV", "1")
+    monkeypatch.setenv("BACKEND_IGNORE_DOTENV", "1")
     s = LLMSettings.from_env("explorer")
     assert not s.configured and build_provider(s) is None and "sk" not in repr(s)
 

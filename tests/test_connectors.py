@@ -6,13 +6,13 @@ from pathlib import Path
 import duckdb
 import pytest
 
-from udre.contracts.models import EdgeType
-from udre.gateway.registry import AccessContext, AccessDenied
-from udre.ingestion.base import AuthenticationError
-from udre.ingestion.hubspot import HubSpotSourceAdapter, verify_webhook_v3
-from udre.ingestion.intune import MicrosoftIntuneSourceAdapter
-from udre.ingestion.mocks import MockGraphAPI, MockHubSpotAPI, webhook_signature
-from udre.ingestion.pipeline import IngestionPipeline
+from backend.contracts.models import EdgeType
+from backend.gateway.registry import AccessContext, AccessDenied
+from backend.ingestion.base import AuthenticationError
+from backend.ingestion.hubspot import HubSpotSourceAdapter, verify_webhook_v3
+from backend.ingestion.intune import MicrosoftIntuneSourceAdapter
+from backend.ingestion.mocks import MockGraphAPI, MockHubSpotAPI, webhook_signature
+from backend.ingestion.pipeline import IngestionPipeline
 
 TENANT = "t_connectors"
 NOSLEEP = lambda s: None  # noqa: E731
@@ -20,7 +20,7 @@ NOSLEEP = lambda s: None  # noqa: E731
 
 @pytest.fixture(scope="module")
 def env(pg_uri, uploads_dir, tmp_path_factory, generator):
-    from udre.engine import build_engine
+    from backend.engine import build_engine
 
     e = build_engine(llm_providers=(None, None))
     e.kg.delete_tenant(TENANT)
@@ -58,7 +58,7 @@ def test_intune_paginates_throttles_and_profiles(env):
     assert r.rows[0] == {"n": 230, "p": 4}
     assert r.provenance["mode"] == "snapshot" and r.provenance["synced_at"]
     cols = {c.name for c in env["engine"].gateway.adapter(env["ctx"], "intune").describe_collection("managed_devices").columns}
-    assert {"hardware_information__total_storage_space", "compliance_state", "_udre_present", "_udre_archived"} <= cols
+    assert {"hardware_information__total_storage_space", "compliance_state", "_backend_present", "_backend_archived"} <= cols
     refs = env["engine"].kg.edges(EdgeType.REFERENCES, source_id="intune", tenant=TENANT)
     assert any(e["properties"]["child_col"] == "policy_id" and e["verification_status"] == "verified_fact" for e in refs)
 
@@ -86,7 +86,7 @@ def test_intune_authentication_errors_are_redacted(env):
 
 
 def test_intune_failure_recovery_keeps_other_objects(env, tmp_path):
-    from udre.engine import build_engine  # noqa: F401
+    from backend.engine import build_engine  # noqa: F401
 
     g = MockGraphAPI(throttle_once=False)
     g.fail_paths["/deviceManagement/detectedApps"] = 50
@@ -127,7 +127,7 @@ def test_hubspot_dynamic_properties_custom_objects_archives(env):
     assert "customer_tier__c" in comp and "Gold" in comp["customer_tier__c"].description
     types = {c.name: c.data_type for c in ad.describe_collection("deals").columns}
     assert types["amount"] == "DOUBLE" and types["hs_is_closed_won"] == "BOOLEAN"
-    assert _q(env, "hubspot", 'SELECT COUNT(*) AS n FROM "contacts" WHERE "_udre_archived"').rows[0]["n"] == 3
+    assert _q(env, "hubspot", 'SELECT COUNT(*) AS n FROM "contacts" WHERE "_backend_archived"').rows[0]["n"] == 3
     assert _q(env, "hubspot", 'SELECT COUNT(*) AS n FROM "subscriptions"').rows[0]["n"] == 20
 
 
@@ -160,7 +160,7 @@ def test_hubspot_incremental_sync_and_schema_evolution(env):
 
 
 def test_hubspot_webhooks_signature_and_queue(env):
-    secret, body, uri, ts = "hs-secret", '[{"objectId": 1}]', "https://udre.example/webhooks/hubspot/hubspot", "1761200000000"
+    secret, body, uri, ts = "hs-secret", '[{"objectId": 1}]', "https://backend.example/webhooks/hubspot/hubspot", "1761200000000"
     sig = webhook_signature(secret, "POST", uri, body, ts)
     assert verify_webhook_v3(secret, "POST", uri, body, ts, sig, now_ms=1761200001000)
     assert not verify_webhook_v3(secret, "POST", uri, body + " ", ts, sig, now_ms=1761200001000)
