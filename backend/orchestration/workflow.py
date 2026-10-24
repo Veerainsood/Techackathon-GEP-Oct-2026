@@ -494,13 +494,28 @@ class DualPathWorkflow:
             from backend.orchestration.charts import plan_charts
             from backend.orchestration.visualize import breakdown_chart
 
+            from backend.orchestration.semantics import result_semantics
+
             llm = getattr(self.e.intent, "llm", None)
-            charts = plan_charts(state["question"], d.get("final_structured_data") or [], llm=llm)
+            rows = d.get("final_structured_data") or []
+            hints = {}
+            if d.get("winning_query") and rows and isinstance(rows[0], dict):
+                try:
+                    hints = result_semantics(self.e.gateway, ctx, d["winning_source_id"], d["winning_query"], list(rows[0]))
+                except Exception:
+                    hints = {}
+            charts = plan_charts(state["question"], rows, llm=llm, hints=hints)
             if all(c["type"] == "kpi" for c in charts):  # a single figure: add its breakdown so the answer has a picture
                 try:
                     charts += breakdown_chart(self.e.gateway, ctx, d, state["question"], llm=llm)
                 except Exception:
                     pass
+        from backend.orchestration.charts import strip_text_charts
+
+        cleaned = strip_text_charts(d.get("final_answer") or "")
+        answer_changed = cleaned != (d.get("final_answer") or "")
+        if answer_changed:
+            d = dict(d, final_answer=cleaned)
         consistency = check_consistency(self.e, ctx, state.get("manifest") or {})
         leases = self._leases.pop(state["request_id"], None)
         if leases:
@@ -536,7 +551,7 @@ class DualPathWorkflow:
             out["charts"] = charts
         if answer_id:
             out["answer_id"] = answer_id
-        if consistency["warnings"]:
+        if consistency["warnings"] or answer_changed:
             out["decision"] = d
         return out
 

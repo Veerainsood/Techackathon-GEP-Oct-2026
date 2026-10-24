@@ -7,6 +7,10 @@ TRUST_RULES = """Operating rules:
   computation you executed in this session.
 - Queries are read-only SELECTs. Use the dialect reported by discover_sources and quote identifiers.
 - Alias the answer column as "value". For grouped answers, select the group label column and "value".
+- The app draws charts from your result rows. Never draw charts, ASCII or block-character bars or other text
+  visualisations in the answer; when a visual is asked for, return chart-ready rows instead: one row per period (and per
+  series such as currency, region or actual/forecast) with a period column, the series columns and "value". Keep
+  subtotal and total rows out of the result rows; state totals in the answer text.
 - Every tool call must include "gap": the specific knowledge gap it resolves.
 - The data-version manifest in the first message pins the versions you are analysing; cached schema or metric information
   that predates those versions may be invalid -- re-check it with tools.
