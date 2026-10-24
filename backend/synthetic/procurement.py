@@ -80,9 +80,10 @@ class ProcurementGenerator:
     def generate(self) -> ProcurementData:
         rng = self.rng
         self.suppliers, self.contracts, self.rates = [], {}, {}
-        for name, category, region in SUPPLIERS:
+        for n, (name, category, region) in enumerate(SUPPLIERS, 1):
             sid = self._id("SUP", 3)
-            s = self._add("suppliers", dict(supplier_id=sid, supplier_name=name, conglomerate_id=self.groups.get(name), category=category,
+            s = self._add("suppliers", dict(supplier_id=sid, supplier_name=name, tax_id=f"{REGION_COUNTRY[region]}-TX{n * 7919:07d}",
+                                            conglomerate_id=self.groups.get(name), category=category,
                                             region_code=region, country_iso=REGION_COUNTRY[region],
                                             payment_terms_code=rng.choice(["NET30", "NET45", "NET60"]), status="ACTIVE"))
             self.suppliers.append(s)
@@ -124,7 +125,7 @@ class ProcurementGenerator:
         total = r2(sum(q * p for _code, q, p in lines))
         inv = self._add("supplier_invoices", dict(
             invoice_id=iid, supplier_id=s["supplier_id"], po_id=po_id, invoice_number=number or f"{s['supplier_name'][:3].upper()}-{self.rng.randint(10000, 99999)}",
-            invoice_date=inv_date, due_date=inv_date + timedelta(days=c["payment_terms_days"]), currency="USD",
+            invoice_date=inv_date, due_date=inv_date + timedelta(days=c["payment_terms_days"]), currency="USD", fx_rate=1.0,
             amount_total=total, status="PAID", hold_reason=hold_reason))
         for code, q, p in lines:
             self._add("supplier_invoice_lines", dict(line_id=self._id("SIL", 6), invoice_id=iid, item_code=code, quantity=q,
@@ -317,7 +318,7 @@ class ProcurementGenerator:
 DDL = """
 DROP SCHEMA IF EXISTS procurement CASCADE;
 CREATE SCHEMA procurement;
-CREATE TABLE procurement.suppliers (supplier_id VARCHAR(16) PRIMARY KEY, supplier_name VARCHAR(120) NOT NULL,
+CREATE TABLE procurement.suppliers (supplier_id VARCHAR(16) PRIMARY KEY, supplier_name VARCHAR(120) NOT NULL, tax_id VARCHAR(32),
   conglomerate_id VARCHAR(32), category VARCHAR(40) NOT NULL, region_code VARCHAR(8) NOT NULL, country_iso VARCHAR(4) NOT NULL,
   payment_terms_code VARCHAR(16) NOT NULL, status VARCHAR(16) NOT NULL);
 CREATE TABLE procurement.supplier_contracts (contract_id VARCHAR(16) PRIMARY KEY, supplier_id VARCHAR(16) NOT NULL REFERENCES procurement.suppliers,
@@ -332,7 +333,8 @@ CREATE TABLE procurement.purchase_orders (po_id VARCHAR(16) PRIMARY KEY, supplie
   amount_total NUMERIC(14,2) NOT NULL, status VARCHAR(16) NOT NULL);
 CREATE TABLE procurement.supplier_invoices (invoice_id VARCHAR(16) PRIMARY KEY, supplier_id VARCHAR(16) NOT NULL REFERENCES procurement.suppliers,
   po_id VARCHAR(16) REFERENCES procurement.purchase_orders, invoice_number VARCHAR(40) NOT NULL, invoice_date DATE NOT NULL, due_date DATE NOT NULL,
-  currency VARCHAR(4) NOT NULL, amount_total NUMERIC(14,2) NOT NULL, status VARCHAR(16) NOT NULL, hold_reason VARCHAR(160));
+  currency VARCHAR(4) NOT NULL, fx_rate NUMERIC(12,6) NOT NULL DEFAULT 1, amount_total NUMERIC(14,2) NOT NULL, status VARCHAR(16) NOT NULL,
+  hold_reason VARCHAR(160));
 CREATE TABLE procurement.supplier_invoice_lines (line_id VARCHAR(16) PRIMARY KEY, invoice_id VARCHAR(16) NOT NULL REFERENCES procurement.supplier_invoices,
   item_code VARCHAR(16) NOT NULL, quantity NUMERIC(12,2) NOT NULL, unit_price NUMERIC(12,2) NOT NULL, line_amount NUMERIC(14,2) NOT NULL);
 CREATE TABLE procurement.supplier_payments (payment_id VARCHAR(16) PRIMARY KEY, invoice_id VARCHAR(16) NOT NULL REFERENCES procurement.supplier_invoices,
@@ -348,7 +350,7 @@ COMMENT ON TABLE procurement.suppliers IS 'One row per supplier we buy from, wit
 COMMENT ON TABLE procurement.supplier_contracts IS 'Supplier contracts with payment terms, early-payment discount (percent within days) and any agreed annual price escalation.';
 COMMENT ON TABLE procurement.contract_rate_cards IS 'Agreed unit price per item for each supplier contract.';
 COMMENT ON TABLE procurement.purchase_orders IS 'Purchase orders raised with suppliers.';
-COMMENT ON TABLE procurement.supplier_invoices IS 'Invoices received from suppliers (accounts payable); hold_reason is set when an invoice was put on hold.';
+COMMENT ON TABLE procurement.supplier_invoices IS 'Invoices received from suppliers (accounts payable); hold_reason is set when an invoice was put on hold; fx_rate converts the invoice currency to USD.';
 COMMENT ON TABLE procurement.supplier_invoice_lines IS 'Line items of supplier invoices with quantity and invoiced unit price.';
 COMMENT ON TABLE procurement.supplier_payments IS 'Payments made to suppliers against invoices; discount_taken marks early-payment discounts.';
 COMMENT ON TABLE procurement.saas_subscriptions IS 'SaaS subscriptions with seats purchased and price per seat per month.';

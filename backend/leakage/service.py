@@ -113,6 +113,8 @@ class LeakageService:
             res = self.e.gateway.execute_query(ctx, self.source_id, sql, max_rows=10000)
             if not res.succeeded:
                 raise RuntimeError(res.error_message)
+            if res.truncated:  # a silently cut candidate list would hide leakage
+                raise RuntimeError(f"a detector query returned more than {len(res.rows)} rows; narrow it before trusting the result")
             return res.rows
 
         cases = []
