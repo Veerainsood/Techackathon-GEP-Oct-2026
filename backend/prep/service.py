@@ -174,10 +174,15 @@ class PrepService:
                 self.store.update(job_id, status="planning", profile=profile)
                 plan, meta = self.agent.plan(profile, filename, box.path(data_rel), source,
                                              lambda code: box.run_python(_with_path(code, box.path(data_rel))), on_event)
-                fixes = [{"id": f"fix-{i + 1}", **f.model_dump(), "decision": classify(f, profile)} for i, f in enumerate(plan.fixes)]
+                fixes = [{"id": f"fix-{i + 1}", **f.model_dump(), "decision": classify(f, profile, source)}
+                         for i, f in enumerate(plan.fixes)]
                 auto = [f for f in fixes if f["decision"] == "auto"]
                 for f in auto:
                     f["status"] = "applied"
+                for f in fixes:
+                    if f["decision"] == "skipped":
+                        f["status"] = "skipped"
+                        f["note"] = "not applied to CRM data: the database keeps every record the CRM has"
                 pending = [f for f in fixes if f["decision"] == "approval"]
                 for f in pending:
                     f["status"] = "pending"

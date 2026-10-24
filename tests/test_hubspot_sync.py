@@ -146,9 +146,9 @@ def test_sync_event_names_crm_account_ids_and_matches_the_backend_contract(lab):
     assert by_name["pipeline_crm.prospect_accounts"] == [fabrikam]  # Fabrikam became a customer; the others already were
 
 
-def test_batches_are_checked_before_loading_and_held_records_wait_for_approval(lab):
-    """The ingestion pipeline sends each batch to the backend's data-prep agent (signed, in-process here). Records needing a
-    decision are not loaded until every fix is decided; then they are released, loaded on the next poll and acknowledged."""
+def test_batches_are_fixed_before_loading_without_approvals(lab):
+    """The ingestion pipeline sends each batch to the backend's data-prep agent (signed, in-process here). Fixes to CRM data
+    are applied without approval, nothing is held, and records are never dropped or given invented facts."""
     from fastapi.testclient import TestClient
 
     from backend.api import app as api
@@ -161,6 +161,7 @@ def test_batches_are_checked_before_loading_and_held_records_wait_for_approval(l
 
     e = build_engine(llm_providers=(None,) * 5)
     e.consumer.secret = "s"
+    e.governance._exec("DELETE FROM backend_runtime.approvals WHERE tenant_id = %s", ("t_prep_batch",))
     original = api.engine
     api.engine = lambda: e
     client = TestClient(api.app)
@@ -177,7 +178,7 @@ def test_batches_are_checked_before_loading_and_held_records_wait_for_approval(l
                             contact("h2", "Northwind Traders", "customer"))
     for i, c in enumerate((complete, other, gap)):
         c.properties.update(jobtitle=["CFO", "Controller", None][i], phone=f"+1 555 010{i}")
-    # one of three job titles is missing: the rules propose filling it, which needs approval, so h2 is held
+    complete.properties["company"] = "  Northwind Traders "  # stray spaces: fixed in the sandbox before loading
     feed = {"contacts": [complete, other, gap], "companies": []}
 
     class FakeClient:
@@ -198,14 +199,11 @@ def test_batches_are_checked_before_loading_and_held_records_wait_for_approval(l
                 mock.patch.object(hubspot_sync, "HubSpotClient", FakeClient), \
                 mock.patch.object(hubspot_sync, "get_warehouse", lambda: lab["w"]):
             hubspot_sync.sync_hubspot(store)
-            loaded = {r[0] for r in q(lab, "SELECT contact_id FROM hubspot.contacts WHERE contact_id IN ('h1','h2','h3')")}
-            assert loaded == {"h1", "h3"}  # h2 is held for a decision
-            for a in [a for a in e.governance.list_approvals("t_prep_batch", "pending") if a["payload"].get("kind") == "prep_fix"]:
-                e.prep.decided("t_prep_batch", e.governance.decide("t_prep_batch", a["approval_id"], False, "reviewer", None))
-            feed["contacts"] = []  # nothing new from HubSpot; the released record comes from the backend
-            hubspot_sync.sync_hubspot(store)
-        assert {r[0] for r in q(lab, "SELECT contact_id FROM hubspot.contacts WHERE contact_id IN ('h1','h2')")} == {"h1", "h2"}
-        assert q(lab, "SELECT jobtitle FROM hubspot.contacts WHERE contact_id = 'h2'") == [(None,)]  # fill rejected: unchanged
-        assert e.prep.released_batches("t_prep_batch", "hubspot") == []  # acknowledged
+        loaded = {r[0] for r in q(lab, "SELECT contact_id FROM hubspot.contacts WHERE contact_id IN ('h1','h2','h3')")}
+        assert loaded == {"h1", "h2", "h3"}  # nothing held, nothing dropped
+        assert q(lab, "SELECT company FROM hubspot.contacts WHERE contact_id = 'h1'") == [("Northwind Traders",)]
+        assert q(lab, "SELECT jobtitle FROM hubspot.contacts WHERE contact_id = 'h2'") == [(None,)]  # a job title is not invented
+        assert not [a for a in e.governance.list_approvals("t_prep_batch", "all") if a["payload"].get("kind") == "prep_fix"]
+        assert e.prep.released_batches("t_prep_batch", "hubspot") == []
     finally:
         api.engine = original
