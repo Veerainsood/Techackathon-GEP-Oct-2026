@@ -190,7 +190,7 @@ export function toLeakageFeed(cases: LeakageCase[]): FeedItem[] {
   return cases
     .filter((c) => c.status !== 'resolved')
     .map((c) => ({
-      source: c.type_label,
+      source: c.source_label ? `${c.type_label} · HubSpot file ${c.source_label}` : c.type_label,
       title: c.root_cause.length > 160 ? `${c.root_cause.slice(0, 157)}…` : c.root_cause,
       outcome:
         c.status === 'executed'
@@ -265,6 +265,22 @@ export function toAutopilotFeed(actions: AutopilotAction[], events: PolicyEvent[
         rule: e.kind === 'violation' ? String((e.detail as { region?: string }).region ?? '') : 'Admission check',
         at: hhmm(e.created_at),
       })),
+    ...events
+      .filter((e) => e.kind === 'hubspot_file')
+      .map((e) => {
+        const leak = (e.detail as { leakage?: { cases?: number } }).leakage
+        return {
+          ts: e.created_at,
+          source: 'HubSpot file',
+          title: e.title,
+          outcome: leak?.cases
+            ? 'Checked by the data-prep agent, read as invoices · recovery drafts waiting in Approvals'
+            : 'Checked by the data-prep agent, read as invoices · nothing to recover',
+          handled: (leak?.cases ? 'escalated' : 'auto') as FeedItem['handled'],
+          rule: 'Every file uploaded to HubSpot is checked for leaks',
+          at: hhmm(e.created_at),
+        }
+      }),
   ]
   return items.sort((a, b) => (a.ts < b.ts ? 1 : -1))
 }

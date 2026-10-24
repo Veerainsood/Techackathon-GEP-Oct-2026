@@ -1,0 +1,167 @@
+{
+  "file": "hubspot_upload/vendor_invoices_h2_2025.csv",
+  "seeded_total_usd": 31147.86,
+  "cases": [
+    {
+      "type": "duplicate_invoice",
+      "ref": "HS-0142",
+      "related": [
+        "HS-0141"
+      ],
+      "recoverable_usd": 4547.61,
+      "note": "same invoice entered twice and paid twice"
+    },
+    {
+      "type": "duplicate_invoice",
+      "ref": "HS-0144",
+      "related": [
+        "HS-0143"
+      ],
+      "recoverable_usd": 5207.8,
+      "note": "same invoice entered twice and paid twice"
+    },
+    {
+      "type": "duplicate_invoice",
+      "ref": "HS-0146",
+      "related": [
+        "HS-0145"
+      ],
+      "recoverable_usd": 7325.3,
+      "note": "same invoice entered twice and paid twice"
+    },
+    {
+      "type": "duplicate_invoice",
+      "ref": "HS-0148",
+      "related": [
+        "HS-0147"
+      ],
+      "recoverable_usd": 9206.4,
+      "note": "same invoice entered twice and paid twice"
+    },
+    {
+      "type": "duplicate_invoice",
+      "ref": "HS-0150",
+      "related": [
+        "HS-0149"
+      ],
+      "recoverable_usd": 2081.52,
+      "note": "copy not paid yet: hold the payment"
+    },
+    {
+      "type": "overpayment",
+      "ref": "HS-0151",
+      "related": [],
+      "recoverable_usd": 107.07,
+      "note": "paid more than invoiced"
+    },
+    {
+      "type": "overpayment",
+      "ref": "HS-0152",
+      "related": [],
+      "recoverable_usd": 324.55,
+      "note": "paid more than invoiced"
+    },
+    {
+      "type": "overpayment",
+      "ref": "HS-0153",
+      "related": [],
+      "recoverable_usd": 620.59,
+      "note": "paid more than invoiced"
+    },
+    {
+      "type": "overpayment",
+      "ref": "HS-0154",
+      "related": [],
+      "recoverable_usd": 915.35,
+      "note": "paid more than invoiced"
+    },
+    {
+      "type": "missed_discount",
+      "ref": "HS-0155",
+      "related": [],
+      "recoverable_usd": 68.72,
+      "note": "2/10 Net 30: paid on day 25 without the discount"
+    },
+    {
+      "type": "missed_discount",
+      "ref": "HS-0156",
+      "related": [],
+      "recoverable_usd": 71.86,
+      "note": "2/10 Net 30: paid on day 25 without the discount"
+    },
+    {
+      "type": "missed_discount",
+      "ref": "HS-0157",
+      "related": [],
+      "recoverable_usd": 33.17,
+      "note": "1/15 Net 45: paid on day 25 without the discount"
+    },
+    {
+      "type": "missed_discount",
+      "ref": "HS-0158",
+      "related": [],
+      "recoverable_usd": 73.87,
+      "note": "2/10 Net 30: paid on day 25 without the discount"
+    },
+    {
+      "type": "price_variance",
+      "ref": "HS-0159",
+      "related": [],
+      "recoverable_usd": 54.4,
+      "note": "unit price 41.57 vs contract 38.85"
+    },
+    {
+      "type": "price_variance",
+      "ref": "HS-0160",
+      "related": [],
+      "recoverable_usd": 95.75,
+      "note": "unit price 42.08 vs contract 38.25"
+    },
+    {
+      "type": "price_variance",
+      "ref": "HS-0161",
+      "related": [],
+      "recoverable_usd": 175.2,
+      "note": "unit price 50.75 vs contract 44.91"
+    },
+    {
+      "type": "price_variance",
+      "ref": "HS-0162",
+      "related": [],
+      "recoverable_usd": 238.7,
+      "note": "unit price 49.47 vs contract 42.65"
+    }
+  ],
+  "legitimate_exceptions": [
+    {
+      "type": "duplicate_invoice",
+      "ref": "HS-0164",
+      "why": "monthly retainer"
+    },
+    {
+      "type": "duplicate_invoice",
+      "ref": "HS-0165",
+      "why": "monthly retainer"
+    },
+    {
+      "type": "duplicate_invoice",
+      "ref": "HS-0167",
+      "why": "same number at a different vendor"
+    },
+    {
+      "type": "missed_discount",
+      "ref": "HS-0168",
+      "why": "discount taken inside the window"
+    },
+    {
+      "type": "overpayment",
+      "ref": "HS-0169",
+      "why": "partial payment, not an overpayment"
+    },
+    {
+      "type": "price_variance",
+      "ref": "HS-0170",
+      "why": "0.3% rounding"
+    }
+  ]
+}

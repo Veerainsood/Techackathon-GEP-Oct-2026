@@ -474,6 +474,117 @@ def write_pack(out_dir: Path) -> Dict[str, Any]:
     return answer
 
 
+def write_hubspot_file(out_dir: Path) -> Dict[str, Any]:
+    """One flat invoice ledger to upload to HubSpot (Files): each row is an invoice with its payment, terms, item and the
+    contracted price. Seeded leakage: duplicates (number typed differently, one not paid yet), overpayments, missed
+    early-payment discounts and prices above contract; look-alikes: retainers, the same number at another vendor, discounts
+    taken in time, partial payments and rounding. Gaps to fill: some currencies are blank (all USD)."""
+    rng = random.Random(41)
+    vendors = [("Contoso Logistics", "Net 30", None), ("Northwind Traders", "2/10 Net 30", 2.0), ("Woodgrove Bank", "Net 45", None),
+               ("Litware Pvt Ltd", "2/10 Net 30", 2.0), ("Fabrikam Retail", "Net 30", None), ("Adatum Systems", "Net 60", None),
+               ("Trey Research", "Net 30", None), ("Lucerne Consulting", "1/15 Net 45", 1.0)]
+    items = {"FRT-STD": 85.0, "WHS-MO": 2200.0, "LTP-14": 1150.0, "CON-DAY": 1400.0, "SUP-BOX": 42.0, "SEAT-PRO": 75.0}
+    contract = {(v, it): r2(p * rng.uniform(0.9, 1.1)) for v, _, _ in vendors for it, p in items.items()}
+    rows: List[Dict[str, Any]] = []
+    key: List[Dict[str, Any]] = []
+    exc: List[Dict[str, Any]] = []
+    n = 0
+
+    def add(vendor: str, terms: str, disc: Optional[float], on: date, item: str, qty: float, price: float, number: Optional[str] = None,
+            paid: Optional[float] = None, paid_on: Optional[date] = None, taken: str = "N", po: str = "") -> Dict[str, Any]:
+        nonlocal n
+        n += 1
+        amount = r2(qty * price)
+        if paid is None and paid_on is None:  # paid normally: with the discount inside the window when the terms offer one
+            if disc:
+                paid_on, paid, taken = on + timedelta(days=rng.randint(4, 10)), r2(amount * (1 - disc / 100)), "Y"
+            else:
+                paid_on, paid = on + timedelta(days=int(terms.split()[-1]) - rng.randint(0, 5)), amount
+        row = {"Doc No": f"HS-{n:04d}", "Invoice No": number or f"{vendor[:3].upper()}-{rng.randint(10000, 99999)}", "Vendor": vendor,
+               "Invoice Date": on.isoformat(), "Item": item, "Qty": qty, "Unit Price": price, "Contract Price": contract[(vendor, item)],
+               "Amount": amount, "Currency": "" if rng.random() < 0.06 else "USD", "PO Number": po, "Payment Terms": terms,
+               "Paid Amount": "" if paid is None else paid, "Payment Date": paid_on.isoformat() if paid_on else "", "Discount Taken": taken}
+        rows.append(row)
+        return row
+
+    start = date(2025, 7, 1)
+    for k in range(140):  # normal invoices at the contracted price
+        v, terms, disc = vendors[k % len(vendors)]
+        it = rng.choice(list(items))
+        add(v, terms, disc, start + timedelta(days=rng.randint(0, 150)), it, float(rng.randint(1, 30)), contract[(v, it)])
+    plain = [v for v in vendors if not v[2]]
+
+    for k in range(4):  # duplicates: the same invoice entered again with the number typed differently, and paid again
+        v, terms, _ = plain[k]
+        orig = add(v, terms, None, start + timedelta(days=10 + 7 * k), "CON-DAY", float(3 + k), contract[(v, "CON-DAY")])
+        num = orig["Invoice No"]
+        variant = [num.replace("-", ""), num.lower() + " ", num.replace("-", "-0"), num.replace("-", " ")][k]
+        on = date.fromisoformat(orig["Invoice Date"]) + timedelta(days=3 + 4 * k)
+        dup = add(v, terms, None, on, "CON-DAY", orig["Qty"], orig["Unit Price"], number=variant)
+        key.append({"type": "duplicate_invoice", "ref": dup["Doc No"], "related": [orig["Doc No"]], "recoverable_usd": dup["Paid Amount"],
+                    "note": "same invoice entered twice and paid twice"})
+    v, terms, _ = plain[0]  # a copy caught before payment
+    orig = add(v, terms, None, start + timedelta(days=90), "WHS-MO", 1.0, contract[(v, "WHS-MO")])
+    dup = add(v, terms, None, start + timedelta(days=94), "WHS-MO", 1.0, orig["Unit Price"], number=orig["Invoice No"], paid=None, paid_on=start)
+    dup["Paid Amount"], dup["Payment Date"] = "", ""
+    key.append({"type": "duplicate_invoice", "ref": dup["Doc No"], "related": [orig["Doc No"]], "recoverable_usd": dup["Amount"],
+                "note": "copy not paid yet: hold the payment"})
+
+    for k in range(4):  # overpayments
+        v, terms, _ = plain[(k + 1) % len(plain)]
+        r = add(v, terms, None, start + timedelta(days=30 + 9 * k), "LTP-14", float(2 + k), contract[(v, "LTP-14")])
+        extra = r2(r["Amount"] * (0.05 + 0.04 * k))
+        r["Paid Amount"] = r2(r["Amount"] + extra)
+        key.append({"type": "overpayment", "ref": r["Doc No"], "related": [], "recoverable_usd": extra, "note": "paid more than invoiced"})
+
+    disc_vendors = [v for v in vendors if v[2]]
+    for k in range(4):  # missed early-payment discounts
+        v, terms, disc = disc_vendors[k % len(disc_vendors)]
+        on = start + timedelta(days=40 + 8 * k)
+        r = add(v, terms, disc, on, "FRT-STD", float(40 + k), contract[(v, "FRT-STD")], paid=0.0, paid_on=on)
+        r["Paid Amount"], r["Payment Date"], r["Discount Taken"] = r["Amount"], (on + timedelta(days=25)).isoformat(), "N"
+        key.append({"type": "missed_discount", "ref": r["Doc No"], "related": [], "recoverable_usd": r2(r["Amount"] * disc / 100),
+                    "note": f"{terms}: paid on day 25 without the discount"})
+
+    for k in range(4):  # prices above the contract
+        v, terms, _ = plain[(k + 2) % len(plain)]
+        cp = contract[(v, "SUP-BOX")]
+        price = r2(cp * (1.07 + 0.03 * k))
+        r = add(v, terms, None, start + timedelta(days=60 + 6 * k), "SUP-BOX", float(20 + 5 * k), price)
+        key.append({"type": "price_variance", "ref": r["Doc No"], "related": [], "recoverable_usd": r2((price - cp) * r["Qty"]),
+                    "note": f"unit price {price} vs contract {cp}"})
+
+    # look-alikes that must not be flagged
+    v, terms, _ = plain[1]
+    for m in range(3):  # a monthly retainer: same amount, different numbers
+        r = add(v, terms, None, date(2025, 8 + m, 1), "WHS-MO", 1.0, contract[(v, "WHS-MO")])
+        if m:
+            exc.append({"type": "duplicate_invoice", "ref": r["Doc No"], "why": "monthly retainer"})
+    a = add(plain[2][0], plain[2][1], None, start + timedelta(days=70), "SUP-BOX", 10.0, contract[(plain[2][0], "SUP-BOX")], number="INV-2001")
+    b = add(plain[3][0], plain[3][1], None, start + timedelta(days=72), "SUP-BOX", 10.0, contract[(plain[3][0], "SUP-BOX")], number="INV-2001")
+    for r in (a, b):  # header-only rows with the same amount: only the vendor tells them apart
+        r.update({"Item": "", "Qty": "", "Unit Price": "", "Contract Price": "", "Amount": 1250.0, "Paid Amount": 1250.0})
+    exc.append({"type": "duplicate_invoice", "ref": b["Doc No"], "why": "same number at a different vendor"})
+    v, terms, disc = disc_vendors[0]
+    r = add(v, terms, disc, start + timedelta(days=100), "FRT-STD", 12.0, contract[(v, "FRT-STD")])
+    exc.append({"type": "missed_discount", "ref": r["Doc No"], "why": "discount taken inside the window"})
+    v, terms, _ = plain[4 % len(plain)]
+    r = add(v, terms, None, start + timedelta(days=110), "LTP-14", 2.0, contract[(v, "LTP-14")])
+    r["Paid Amount"] = r2(r["Amount"] / 2)
+    exc.append({"type": "overpayment", "ref": r["Doc No"], "why": "partial payment, not an overpayment"})
+    r = add(v, terms, None, start + timedelta(days=115), "SUP-BOX", 30.0, r2(contract[(v, "SUP-BOX")] * 1.003))
+    exc.append({"type": "price_variance", "ref": r["Doc No"], "why": "0.3% rounding"})
+
+    rows.sort(key=lambda x: x["Invoice Date"])
+    folder = out_dir / "hubspot_upload"
+    folder.mkdir(parents=True, exist_ok=True)
+    pd.DataFrame(rows).to_csv(folder / "vendor_invoices_h2_2025.csv", index=False)
+    answer = {"file": "hubspot_upload/vendor_invoices_h2_2025.csv", "seeded_total_usd": round(sum(k["recoverable_usd"] for k in key), 2),
+              "cases": key, "legitimate_exceptions": exc}
+    (out_dir / "hubspot_upload_answer_key.json").write_text(json.dumps(answer, indent=2, default=str), encoding="utf-8")
+    return answer
+
+
 def write_approval_file(out_dir: Path) -> List[Path]:
     """One file whose problems need a person: ambiguous dates, amounts typed as text, rows without an id, exact duplicates;
     plus gaps the agent fills on its own (cost centre) and stray spaces."""

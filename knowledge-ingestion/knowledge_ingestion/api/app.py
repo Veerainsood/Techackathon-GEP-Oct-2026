@@ -25,6 +25,7 @@ from fastapi import FastAPI, HTTPException, Query
 
 from knowledge_ingestion.config import config
 from knowledge_ingestion.connectors.hubspot.client import HubSpotError
+from knowledge_ingestion.pipeline.hubspot_files import sync_files
 from knowledge_ingestion.pipeline.hubspot_sync import SOURCE_SYSTEM, collection_name, sync_hubspot
 from knowledge_ingestion.storage.factory import get_store
 from knowledge_ingestion.storage.warehouse import get_warehouse
@@ -39,6 +40,10 @@ async def _poll_forever(interval_seconds: int) -> None:
         except Exception:
             # The run is already recorded as failed, so log and keep polling.
             logger.exception("Scheduled HubSpot poll failed")
+        try:  # files uploaded to HubSpot go to the backend for data prep and the leak check
+            await asyncio.to_thread(sync_files)
+        except Exception:
+            logger.exception("Scheduled HubSpot file poll failed")
         await asyncio.sleep(interval_seconds)
 
 
@@ -62,6 +67,12 @@ app = FastAPI(title="Knowledge Ingestion API", version="0.2.0", lifespan=lifespa
 @app.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
+
+
+@app.post("/hubspot/files/sync")
+def hubspot_files_sync() -> dict[str, Any]:
+    """Send CSV / Excel files uploaded to HubSpot since the last run to the backend (data prep, then the leak check)."""
+    return sync_files()
 
 
 @app.post("/hubspot/sync")

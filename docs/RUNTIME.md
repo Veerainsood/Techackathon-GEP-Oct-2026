@@ -122,6 +122,15 @@ Endpoints: `POST /leakage/scan`, `GET /leakage/summary`, `GET /leakage/cases?sta
 2. Dates and amounts in any common format are parsed, vendors are resolved by id, tax id or name variant, payments are linked to invoices through an id column or a free-text reference, full credit notes reverse invoices, foreign-currency invoices are converted with the uploaded FX rates, and annual licence prices become monthly. Anything not read or linked is reported in the answer.
 3. The canonical tables are loaded into an in-memory DuckDB under schema `procurement` and the detectors run unchanged. The answer lists every case with its evidence and says which files were read and which were not used. The normalised ledger (`ledger_*`) and `leakage_findings` are then added to the conversation's files, so follow-up questions can use them.
 
+**Files uploaded to HubSpot.** Every CSV or Excel file uploaded to HubSpot's file manager is treated as invoice data and checked for leaks without anyone asking:
+1. knowledge-ingestion polls the files changed since its cursor (`pipeline/hubspot_files.py`; needs the private app's `files` scope, otherwise this step is skipped with a warning) and sends each one, signed, to `POST /hubspot/files`.
+2. The backend checks it with the data-prep agent as CRM data: everything applies, nothing is dropped, and blank paid amounts and payment dates are never filled.
+3. It reads every table as invoices whatever its headers. A flat ledger row may also carry its payment, terms, item, quantity, unit price and contracted price, which become payments, contracts and price cards.
+4. The detectors run; cases are stored with the file as their source (the warehouse sweep does not resolve them) and get recovery drafts in Approvals, and the Autopilot feed shows the file and what was found.
+5. Each file version, and the same content uploaded again as another file, is processed once.
+
+Test file: `test_files/hubspot_upload/vendor_invoices_h2_2025.csv` (answer key `test_files/hubspot_upload_answer_key.json`: 17 cases, $31,147.86, 6 look-alikes). Verified live with Opus data prep in Daytona: 17/17, 0 false positives.
+
 Test files (`python scripts/make_test_files.py`): `test_files/leakage_audit_pack/` holds 14 messy AP files to upload together (two ERP invoice exports, scanned invoices, a bank statement with free-text references and refunds, credit notes, a superseded contract, an overlapping price renewal, an INR supplier with FX rates, licences and user activity, gaps to fill, and an unrelated journal extract). The answer key is `test_files/leakage_audit_pack_answer_key.json`: 55 seeded cases worth $1,664,796.37 and 27 legitimate look-alikes. Verified live (Opus data prep in Daytona, then the chat): 55/55 detected with the right values, 0 false positives, no look-alike flagged. `test_files/approval_test/vendor_payments_review.(csv|xlsx)` contains problems that need a person (ambiguous dates, amounts typed as text, rows without an id, exact duplicates); the decisions appear in the chat.
 
 ## Policies, guardrails and autopilot

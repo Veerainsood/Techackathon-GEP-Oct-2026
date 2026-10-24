@@ -846,6 +846,54 @@ async def prep_batch(request: Request) -> Dict[str, Any]:
     return await run_in_threadpool(engine().prep.check_records, *args)
 
 
+@app.post("/hubspot/files")
+async def hubspot_file(request: Request) -> Dict[str, Any]:
+    """A file uploaded to HubSpot (signed, from knowledge-ingestion): {tenant_id, file: {id, name, updated_at}, content_b64}.
+    Checked by the data-prep agent as CRM data, then read as invoices by the leakage hunter. Each file version runs once."""
+    from starlette.concurrency import run_in_threadpool
+
+    b = await _signed_body(request)
+    try:
+        meta, content = b["file"], b["content_b64"]
+    except KeyError as exc:
+        raise HTTPException(400, f"missing field {exc}")
+    return await run_in_threadpool(_process_hubspot_file, b.get("tenant_id") or "default", meta, content)
+
+
+def _process_hubspot_file(tenant: str, meta: Dict[str, Any], content_b64: str) -> Dict[str, Any]:
+    import base64
+
+    from psycopg2.extras import Json
+
+    import hashlib
+
+    e = engine()
+    hid, name, updated = str(meta["id"]), str(meta["name"]), str(meta.get("updated_at") or "")
+    data = base64.b64decode(content_b64)
+    sha = hashlib.sha256(data).hexdigest()
+    seen = e.leakage._exec("""SELECT result FROM backend_runtime.hubspot_files WHERE tenant_id = %s
+                              AND ((hubspot_file_id = %s AND updated_at = %s) OR sha256 = %s) LIMIT 1""",
+                           (tenant, hid, updated, sha), fetch="one")
+    if seen:  # this version, or the same content uploaded again as another file
+        return {"duplicate": True, **(seen["result"] or {})}
+    owner = "service:hubspot"
+    stored = e.files.save_bytes(tenant, owner, name, data, kind="upload", origin=f"hubspot:file:{hid}")
+    job = e.prep.check_file(tenant, owner, stored.file_id, source="hubspot")
+    scan = e.leakage.scan_file(tenant, owner, job.get("checked_file_id") or stored.file_id, name, source=f"hubspot_file:{hid}")
+    result = {"file": name, "hubspot_file_id": hid, "job_id": job["job_id"], "prep": {"applied": job["applied"], "summary": job.get("summary")},
+              "leakage": {k: scan[k] for k in ("cases", "new", "recoverable_usd", "by_type", "warnings")}}
+    e.leakage._exec("INSERT INTO backend_runtime.hubspot_files (tenant_id, hubspot_file_id, updated_at, name, file_id, job_id, result, sha256) "
+                    "VALUES (%s, %s, %s, %s, %s, %s, %s, %s) ON CONFLICT DO NOTHING",
+                    (tenant, hid, updated, name, stored.file_id, job["job_id"],
+                     Json(result, dumps=lambda o: __import__("json").dumps(o, default=str)), sha))
+    if e.policies:
+        n, usd = scan["cases"], scan["recoverable_usd"]
+        e.policies._event(tenant, "hubspot_file", None, hid,
+                          f"HubSpot file {name}: {n} leak{'s' if n != 1 else ''} found, ${usd:,.2f} recoverable" if n
+                          else f"HubSpot file {name}: no leaks found", result)
+    return result
+
+
 @app.post("/prep/batches/released")
 async def prep_released(request: Request) -> List[Dict[str, Any]]:
     """Held records whose fixes have all been decided, ready to load: {tenant_id, source}."""

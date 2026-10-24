@@ -82,6 +82,15 @@ FIELDS: Dict[str, Dict[str, List[str]]] = {
         "status": ["status", "approvalstatus", "paymentstatus", "invoicestatus", "state"],
         "hold_reason": ["holdreason", "blockreason", "hold", "onholdreason", "block"],
         "due_date": ["duedate", "netduedate", "paymentduedate"],
+        # a flat AP ledger carries payment, terms and price columns on the invoice row itself
+        "paid_amount": ["paidamount", "amountpaid", "totalpaid", "paymentamount", "paid"],
+        "payment_date": ["paymentdate", "paiddate", "datepaid", "clearingdate", "valuedate"],
+        "discount_terms": ["paymentterms", "terms", "discountterms", "earlypaymentterms", "earlypayterms"],
+        "discount_taken": ["discounttaken", "earlydiscounttaken", "cashdiscounttaken", "discountapplied"],
+        "item_code": ["itemcode", "sku", "materialcode", "productcode", "item", "material"],
+        "quantity": ["quantity", "qty", "units"],
+        "unit_price": ["unitprice", "invoicedprice", "netprice", "rate"],
+        "contract_price": ["contractprice", "agreedprice", "agreedunitprice", "contractrate", "catalogprice"],
     },
     "invoice_lines": {
         "invoice_id": ["documentno", "docno", "documentnumber", "invoiceid", "invoiceno", "invoicenumber", "invoice"],
@@ -193,6 +202,23 @@ def _required_ok(role: str, mapped: Dict[str, str]) -> bool:
         elif req not in mapped:
             return False
     return True
+
+
+def force_invoices(mapping: LedgerMapping, tables: Dict[str, pd.DataFrame]) -> LedgerMapping:
+    """Every uploaded table is read as invoices unless it was recognised as invoices already: a file that arrives this way
+    is known to hold invoices, whatever its headers suggest. Needs an amount, a date and a vendor; the invoice number may
+    be missing (rows then get their own number, so duplicates are found only through purchase orders)."""
+    out = []
+    for t in mapping.tables:
+        if t.role == "invoices":
+            out.append(t)
+            continue
+        cols, _ = _match("invoices", [str(c) for c in tables[t.table].columns])
+        if {"amount", "invoice_date"} <= set(cols) and ({"vendor_id", "vendor_name"} & set(cols)):
+            out.append(TableMapping(table=t.table, role="invoices", columns=cols, note=f"read as invoices (was {t.role})"))
+        else:
+            out.append(t)
+    return LedgerMapping(tables=out)
 
 
 def heuristic_mapping(tables: Dict[str, pd.DataFrame]) -> LedgerMapping:
@@ -503,10 +529,18 @@ def normalize(tables: Dict[str, pd.DataFrame], mapping: LedgerMapping) -> Ledger
                 pos.append({"po_id": _text(df.at[i, c["po_id"]]), "supplier_id": resolve(col(df, c, "vendor_id")[i], col(df, c, "vendor_name")[i]),
                             "po_date": d[i], "amount_total": float(amt[i])})
 
-    # invoices (any number of exports, including scanned invoices)
+    # invoices (any number of exports, including scanned invoices); a flat ledger row may also carry its payment, its
+    # terms, its item line and the contracted price
     invoices: Dict[str, Dict[str, Any]] = {}
+    row_payments: List[Dict[str, Any]] = []
+    row_lines: List[Dict[str, Any]] = []
+    row_terms: Dict[str, List[Tuple[float, int, Optional[int]]]] = {}
+    row_prices: Dict[Tuple[str, str], List[float]] = {}
+    first_seen: Dict[str, date] = {}
     for name, df, c in by_role.get("invoices", []):
         dates, amounts, dues = to_date(df[c["invoice_date"]]), to_num(df[c["amount"]]), to_date(col(df, c, "due_date"))
+        paid, paid_on = to_num(col(df, c, "paid_amount")), to_date(col(df, c, "payment_date"))
+        qty, price, cprice = to_num(col(df, c, "quantity")), to_num(col(df, c, "unit_price")), to_num(col(df, c, "contract_price"))
         skipped = 0
         for i in df.index:
             iid = _text(col(df, c, "invoice_id")[i]) or f"{name}-{i + 1}"
@@ -516,15 +550,45 @@ def normalize(tables: Dict[str, pd.DataFrame], mapping: LedgerMapping) -> Ledger
                 continue
             cur = (_text(col(df, c, "currency")[i]) or (vendors.get(sid) or {}).get("currency") or "USD").upper()
             invoices[iid] = {"invoice_id": iid, "supplier_id": sid, "po_id": _text(col(df, c, "po_id")[i]),
-                             "invoice_number": _text(df.at[i, c["invoice_number"]]) or iid, "invoice_date": dates[i],
+                             "invoice_number": _text(col(df, c, "invoice_number")[i]) or iid, "invoice_date": dates[i],
                              "due_date": dues[i], "currency": cur, "fx_rate": 1.0, "amount_total": float(amounts[i]),
                              "status": _status(col(df, c, "status")[i]), "hold_reason": _text(col(df, c, "hold_reason")[i]), "source": name}
+            first_seen[sid] = min(first_seen.get(sid, dates[i]), dates[i])
+            if paid[i] is not None and not pd.isna(paid[i]) and paid[i]:
+                row_payments.append({"payment_id": f"{name}-pay-{i + 1}", "invoice_id": iid, "supplier_id": sid,
+                                     "payment_date": paid_on[i] or dates[i], "amount": float(paid[i]),
+                                     "discount_taken": _truthy(col(df, c, "discount_taken")[i])})
+            pct, days = _discount_terms(col(df, c, "discount_terms")[i])
+            net = _net_days(col(df, c, "discount_terms")[i])
+            if pct is not None or net is not None:
+                row_terms.setdefault(sid, []).append((pct or 0.0, days or 0, net))
+            item = (_text(col(df, c, "item_code")[i]) or "").upper()
+            if item and qty[i] is not None and not pd.isna(qty[i]) and price[i] is not None and not pd.isna(price[i]):
+                row_lines.append({"line_id": f"{name}-line-{i + 1}", "invoice_id": iid, "item_code": item,
+                                  "quantity": float(qty[i]), "unit_price": float(price[i])})
+                if cprice[i] is not None and not pd.isna(cprice[i]):
+                    row_prices.setdefault((sid, item), []).append(float(cprice[i]))
         if skipped:
             warn(f"{name}: {skipped} rows without a date, amount or vendor were not read")
+    # terms and contracted prices written on the invoice rows become a contract for vendors that have none
+    with_contract = {k["supplier_id"] for k in contracts}
+    for sid in sorted((set(row_terms) | {s for s, _ in row_prices}) - with_contract):
+        terms = row_terms.get(sid, [])
+        pct, days, net = max(set(terms), key=terms.count) if terms else (0.0, 0, None)
+        cid = f"TERMS-{sid}"
+        contracts.append({"contract_id": cid, "supplier_id": sid, "start_date": date(1900, 1, 1), "end_date": date(2999, 12, 31),
+                          "currency": "USD", "payment_terms_days": net or 30, "early_pay_discount_pct": pct or None,
+                          "early_pay_discount_days": days if pct else None, "escalation_pct": None, "escalation_effective_date": None,
+                          "status": "ACTIVE"})
+        by_contract[cid] = contracts[-1]
+        for (s, item), prices in row_prices.items():
+            if s == sid:
+                rates.append({"rate_id": f"{cid}-{item}", "contract_id": cid, "item_code": item, "unit_price": max(set(prices), key=prices.count),
+                              "valid_from": date(1900, 1, 1), "valid_to": date(2999, 12, 31)})
     upper_ids = {k.upper(): k for k in invoices}
 
     # invoice lines
-    lines: List[Dict[str, Any]] = []
+    lines: List[Dict[str, Any]] = list(row_lines)
     for name, df, c in by_role.get("invoice_lines", []):
         qty, price, total = to_num(df[c["quantity"]]), to_num(df[c["unit_price"]]), to_num(col(df, c, "line_total"))
         orphan = 0
@@ -550,7 +614,7 @@ def normalize(tables: Dict[str, pd.DataFrame], mapping: LedgerMapping) -> Ledger
 
     for k, inv in invoices.items():
         by_number.setdefault((inv["supplier_id"], nnum(inv["invoice_number"])), []).append(k)
-    payments: List[Dict[str, Any]] = []
+    payments: List[Dict[str, Any]] = list(row_payments)
     linked_total = 0
     for name, df, c in by_role.get("payments", []):
         dates, amt, refund = to_date(df[c["payment_date"]]), to_num(df[c["amount"]]), to_num(col(df, c, "refund_amount"))
@@ -727,10 +791,13 @@ def detect(ledger: Ledger) -> List[Dict[str, Any]]:
 
 
 def scan_tables(tables: Dict[str, pd.DataFrame], llm: Any = None,
-                on_event: Optional[Callable[[Dict[str, Any]], None]] = None) -> Dict[str, Any]:
+                on_event: Optional[Callable[[Dict[str, Any]], None]] = None, as_invoices: bool = False) -> Dict[str, Any]:
+    """``as_invoices``: the tables are known to hold invoices (e.g. files arriving through HubSpot), whatever their headers."""
     emit = on_event or (lambda e: None)
     proposal = heuristic_mapping(tables)
     mapping, meta = llm_mapping(llm, tables, proposal) if llm is not None else (proposal, {"mode": "header_match"})
+    if as_invoices:
+        mapping = force_invoices(mapping, tables)
     emit({"agent": "Leakage", "event": "mapping", "mode": meta.get("mode"),
           "roles": {t.table: t.role for t in mapping.tables}})
     ledger = normalize(tables, mapping)
