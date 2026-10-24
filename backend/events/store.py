@@ -21,7 +21,8 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from psycopg2.extras import Json
-from psycopg2.pool import ThreadedConnectionPool
+
+from backend.pg_pool import shared_pool
 
 DDL = """
 CREATE SCHEMA IF NOT EXISTS backend_runtime;
@@ -91,7 +92,7 @@ def _merge(intervals: List[List[str]]) -> List[List[str]]:
 
 class RuntimeStore:
     def __init__(self, uri: str):
-        self._pool = ThreadedConnectionPool(1, 8, uri, connect_timeout=5)
+        self._pool = shared_pool(uri)
         self._exec(DDL)
 
     def _exec(self, sql: str, params: Any = None, fetch: str = "") -> Any:

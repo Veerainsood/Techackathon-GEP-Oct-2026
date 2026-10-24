@@ -10,6 +10,8 @@ import {
   type ApprovalRow,
   type GuardrailRow,
   type Investigation,
+  type LeakageCase,
+  type LeakageSummary,
   type ModelConfig,
   type RuntimeSource,
   type SyncEventRow,
@@ -165,6 +167,48 @@ export function toActivity(answers: AnswerRow[], events: SyncEventRow[], invs: I
   return out.sort((a, b) => b.at.localeCompare(a.at))
 }
 
+const usd = (v: number) => `$${v.toLocaleString(undefined, { maximumFractionDigits: 0 })}`
+
+/** Leakage types -> standing goals on the Autopilot screen. */
+export function toLeakageGoals(s: LeakageSummary | null): StandingGoal[] {
+  return Object.entries(s?.by_type ?? {}).map(([key, t]) => ({
+    id: key,
+    title: t.label,
+    metric: `${t.cases} case${t.cases === 1 ? '' : 's'} · ${usd(t.recoverable_usd)} recoverable`,
+    status: t.open ? 'at-risk' : 'on-track',
+    progress: t.cases ? Math.round((t.executed / t.cases) * 100) : 100,
+    lastRun: 'continuously',
+    actionsToday: t.executed,
+  }))
+}
+
+/** Leakage cases -> live feed items (highest priority first). */
+export function toLeakageFeed(cases: LeakageCase[]): FeedItem[] {
+  return cases
+    .filter((c) => c.status !== 'resolved')
+    .map((c) => ({
+      source: c.type_label,
+      title: c.root_cause.length > 160 ? `${c.root_cause.slice(0, 157)}…` : c.root_cause,
+      outcome:
+        c.status === 'executed'
+          ? `${c.recovery?.request_type ?? 'Recovery'} sent to the AP system (${c.recovery?.request_id ?? ''}) · ${usd(c.recoverable_usd)}`
+          : c.status === 'dismissed'
+            ? 'Dismissed by a reviewer'
+            : `Recovery drafted · ${usd(c.recoverable_usd)} recoverable · waiting in Approvals`,
+      handled: c.status === 'executed' ? 'auto' : c.status === 'dismissed' ? 'blocked' : 'escalated',
+      rule: `${c.supplier_name ?? 'Supplier'} · confidence ${Math.round(c.confidence * 100)}%`,
+      at: hhmm(c.first_seen),
+    }))
+}
+
+export function leakageKpis(s: LeakageSummary | null) {
+  return [
+    { l: 'Leakage detected', v: usd(s?.recoverable_usd ?? 0), c: 'text-rose-700' },
+    { l: 'Recovery awaiting approval', v: String(s?.awaiting_approval ?? 0), c: 'text-amber-700' },
+    { l: 'Recovered (approved)', v: usd(s?.recovered_usd ?? 0), c: 'text-emerald-700' },
+  ]
+}
+
 export interface LiveData {
   backend: 'up' | 'down' | 'checking'
   sources: RuntimeSource[]
@@ -172,6 +216,8 @@ export interface LiveData {
   investigations: Investigation[]
   answers: AnswerRow[]
   models: ModelConfig | null
+  leakage: LeakageSummary | null
+  leakageCases: LeakageCase[]
   refresh: () => void
 }
 
@@ -183,6 +229,8 @@ export function useLiveData(enabled: boolean, intervalMs = 5000): LiveData {
     investigations: [],
     answers: [],
     models: null,
+    leakage: null,
+    leakageCases: [],
   })
   const [tick, setTick] = useState(0)
 
@@ -191,14 +239,16 @@ export function useLiveData(enabled: boolean, intervalMs = 5000): LiveData {
     let alive = true
     const load = async () => {
       try {
-        const [sources, events, investigations, answers, models] = await Promise.all([
+        const [sources, events, investigations, answers, models, leakage, leakageCases] = await Promise.all([
           api.sources(),
           api.events(),
           api.investigations(),
           api.answers(),
           api.models(),
+          api.leakageSummary().catch(() => null),
+          api.leakageCases().catch(() => []),
         ])
-        if (alive) setState({ backend: 'up', sources, events, investigations, answers, models })
+        if (alive) setState({ backend: 'up', sources, events, investigations, answers, models, leakage, leakageCases })
       } catch {
         if (alive) setState((s) => ({ ...s, backend: 'down' }))
       }

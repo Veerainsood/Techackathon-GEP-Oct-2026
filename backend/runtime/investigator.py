@@ -166,6 +166,11 @@ class ChangeInvestigator:
             "collections": [f.__dict__ for f in findings], "ms": round((time.perf_counter() - t0) * 1000, 1),
         }
         summary["stage_b"] = self._stage_b(ctx, ev, summary)
+        if changed and any(c.startswith("procurement.") for c in changed) and getattr(self.e, "leakage", None):
+            try:  # new purchasing, invoice, payment or licence data: hunt for leakage right away
+                summary["leakage"] = self.e.leakage.scan(ev.tenant_id)
+            except Exception as exc:
+                summary["leakage"] = {"error": f"{type(exc).__name__}: {str(exc)[:200]}"}
         return summary
 
     # ------------------------------------------------------------------ per collection

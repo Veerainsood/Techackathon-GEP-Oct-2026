@@ -53,6 +53,6 @@ def gateway(pg_uri, uploads_dir):
 
     gw = SourceGateway()
     # Same scoping as the engine: knowledge-ingestion's tables (public, hubspot) are not part of the warehouse source.
-    gw.register(PostgresSourceAdapter("finance_pg", pg_uri, exclude_schemas=["public", "hubspot"]), tenants=["default", "acme"])
+    gw.register(PostgresSourceAdapter("finance_pg", pg_uri, exclude_schemas=["public", "hubspot", "procurement"]), tenants=["default", "acme"])
     gw.register(FileSourceAdapter("uploads", [str(uploads_dir)]), tenants=["default"])
     return gw

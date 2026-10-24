@@ -93,6 +93,30 @@ Endpoints: `POST /prep/files`, `GET /prep/jobs`, `GET /prep/jobs/{id}`; approval
 
 Verified live: Opus 4.6 in FinSight took 58 s on a messy subscriptions file. It trimmed vendors, standardized mixed date formats and region case, and converted amounts. It did not invent two missing amounts, and flagged a double-billed subscription as critical, proposing its removal only for approval.
 
+## Spend leakage hunting (Problem Statement #15)
+
+Leakage hunting is a capability of the same agent, not a separate tool (`backend/leakage/`). It reads the `procurement` schema in `aethelgard_finance`, which holds suppliers, contracts, rate cards, purchase orders, invoices, invoice lines, payments, SaaS subscriptions and seat usage. Suppliers are shared with the existing client groups through `conglomerate_id`.
+
+1. **Detect:** five read-only detectors run through the gateway:
+   - duplicate invoices: same supplier and amount, within 30 days, different invoice numbers;
+   - prices above the contracted rate, honouring escalation clauses by effective date;
+   - early-payment discounts that were missed;
+   - payments above the invoice amount;
+   - SaaS seats unused for 60 days or more.
+
+   Legitimate exceptions are excluded: credit-noted duplicates, approved price exceptions, recurring monthly fees, seats inside a notice period, and discounts captured in time.
+2. **Investigate:** every case carries its evidence rows, a root cause in plain language, and a confidence score.
+3. **Prioritise:** cases are ranked by recoverable value times confidence.
+4. **Recover:** each new case gets a drafted action in **Approvals**: a claw-back, refund or credit-note request, a discount recovery, a payment hold for an unpaid duplicate, or a seat reduction. Nothing is sent until a person approves. Then the request goes to the mock AP / ERP API (`backend_runtime.mock_ap_requests`); a payment hold blocks the unpaid invoice there. Rejecting a draft dismisses the case.
+
+It runs on its own. A sweep runs every `BACKEND_LEAKAGE_SWEEP_S` seconds (default 900; 0 disables it), and a scan runs whenever a sync event changes a `procurement.*` collection. Repeated scans update cases rather than duplicating them, and a case that is no longer detected (for example after a credit note) becomes `resolved`.
+
+Cases are stored in `backend_runtime.leakage_cases` and registered as the read-only `leakage` source, so the agents answer questions like "which suppliers leak the most?" with the usual verification. In the UI, the Autopilot screen shows one goal per leakage type, totals for leakage detected, items awaiting approval and value recovered, and a case feed. Clicking a goal asks the agent about those cases.
+
+**Data and acceptance:** `scripts/load_procurement.py` generates the procurement data (seed 20261024) and writes `benchmark/leakage_answer_key.json`. That file lists 38 seeded cases worth $1,288,238.09 and 10 legitimate look-alikes. The brief requires at least 80% detection and at most 10% false positives. The detectors find all 38 with exact values, flag no legitimate look-alikes, and have 0 false positives (`tests/test_leakage.py`, `backend/leakage/evaluation.py`).
+
+Endpoints: `POST /leakage/scan`, `GET /leakage/summary`, `GET /leakage/cases?status=`, `GET /mock-ap/requests`; decisions go through `POST /approvals/{id}/decision`.
+
 ## Conversations
 
 Every question belongs to a conversation, stored in PostgreSQL (`backend_runtime.conversations` and `backend_runtime.messages`; code in `backend/runtime/conversations.py`).

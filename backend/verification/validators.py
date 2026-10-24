@@ -17,6 +17,20 @@ from backend.ontology.graph import KnowledgeGraph
 ISO = {"USD", "EUR", "GBP", "JPY", "SGD", "CAD", "AUD", "CHF", "INR", "CNY", "HKD", "SEK", "NOK", "DKK"}
 
 
+def _defined_names(sql: str, dialect: Optional[str]) -> set:
+    import sqlglot
+    from sqlglot import exp
+
+    try:
+        tree = sqlglot.parse_one(sql, read=dialect)
+    except Exception:
+        return set()
+    names = {a.alias for a in tree.find_all(exp.Alias) if a.alias}
+    for cte in tree.find_all(exp.CTE):
+        names |= {c.name for c in (cte.args.get("alias").columns if cte.args.get("alias") else []) if c.name}
+    return names
+
+
 def _f(name: str, passed: bool, severity: str, message: str, **details: Any) -> ValidationFinding:
     return ValidationFinding(validator_name=name, passed=passed, severity=severity, message=message, details=details)
 
@@ -87,7 +101,8 @@ class Verifier:
                 known |= {c.name for c in adapter.describe_collection(t).columns}
             except KeyError:
                 missing_tables.append(t)
-        missing = sorted(c for c in qa.columns if c not in known and c not in ("value",))
+        defined = _defined_names(sql, adapter.dialect)  # aliases and CTE output columns the query itself defines
+        missing = sorted(c for c in qa.columns if c not in known and c not in defined and c not in ("value",))
         if missing_tables or missing:
             return [_f("syntax_and_columns", False, "error", "unknown tables/columns referenced",
                        missing_tables=missing_tables, missing_columns=missing)]
@@ -197,6 +212,11 @@ class Verifier:
             sql = f"SELECT COUNT(*) AS n FROM {view.quote(f.collection)} WHERE {view.quote(f.column)} = {_lit(f.value)}"
             ev = self._scalar(ctx, plan.source_id, sql)
             n = ev["rows"][0]["n"] if ev["ok"] else 0
+            if not n and ev["ok"] and (f.origin == "exclusion" or str(f.op).upper() in ("!=", "<>", "NOT IN")):
+                out.append(_f("filter_grounding", True, "info",
+                              f"'{f.matched_text}' -> {f.collection}.{f.column} {f.op} '{f.value}' excludes a value no row carries yet (no effect)",
+                              evidence=ev))
+                continue
             out.append(_f("filter_grounding", bool(n), "info" if n else "error",
                           f"'{f.matched_text}' -> {f.collection}.{f.column} {f.op} '{f.value}' ({n} rows carry this value)",
                           evidence=ev))

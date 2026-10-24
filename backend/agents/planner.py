@@ -625,9 +625,20 @@ def plan_from_sql(sql: str, source_id: str, dialect: Optional[str], known_collec
 
     tree = sqlglot.parse_one(sql, read=dialect)
     select = tree if isinstance(tree, exp.Select) else tree.find(exp.Select)
+    ctes = {c.alias_or_name for c in tree.find_all(exp.CTE)}
+
+    def reads_cte(s: exp.Select) -> bool:
+        f = s.args.get("from") or s.args.get("from_")
+        t = f.find(exp.Table) if f else None
+        return t is None or (not t.db and t.name in ctes)
+
+    if ctes and reads_cte(select):  # the outer SELECT reads a CTE: plan from the SELECT that reads real tables
+        select = next((s for s in tree.find_all(exp.Select) if not reads_cte(s)), select)
     known = set(known_collections)
     alias_to_coll: Dict[str, str] = {}
     for t in tree.find_all(exp.Table):
+        if not t.db and t.name in ctes:
+            continue
         name = ".".join(p for p in (t.db, t.name) if p)
         coll = name if name in known else next((k for k in known if k.split(".")[-1] == t.name), name)
         alias_to_coll[t.alias_or_name] = coll
@@ -647,6 +658,9 @@ def plan_from_sql(sql: str, source_id: str, dialect: Optional[str], known_collec
         on = j.args.get("on")
         right_tbl = j.find(exp.Table)
         right = alias_to_coll.get(right_tbl.alias_or_name, "") if right_tbl else ""
+        if not right:
+            rationale.append(f"join kept only in SQL: {j.sql()[:80]}")
+            continue
         eq = on.find(exp.EQ) if on else None
         if eq and isinstance(eq.left, exp.Column) and isinstance(eq.right, exp.Column):
             a, b = eq.left, eq.right

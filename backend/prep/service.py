@@ -19,9 +19,9 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
 from psycopg2.extras import Json
-from psycopg2.pool import ThreadedConnectionPool
 
 from backend.prep.agent import DataPrepAgent, Fix, PrepPlan, classify
+from backend.pg_pool import shared_pool
 from backend.prep.scripts import APPLY_SCRIPT, PROFILE_SCRIPT
 from backend.tools.sandbox import LocalProcessSandbox, PersistentDaytonaSandbox, Sandbox, SandboxError
 
@@ -56,7 +56,7 @@ class PrepError(RuntimeError):
 
 class PrepJobStore:
     def __init__(self, uri: str):
-        self._pool = ThreadedConnectionPool(1, 6, uri, connect_timeout=5)
+        self._pool = shared_pool(uri)
         self._exec(DDL)
 
     def _exec(self, sql: str, params: Any = None, fetch: str = "") -> Any:

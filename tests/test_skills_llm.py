@@ -37,7 +37,8 @@ def _expected(split, qid):
 def test_every_collection_has_a_versioned_reference(engine):
     tb = engine.toolbox()
     ctxs = tb.list_collection_contexts(engine.default_ctx, "finance_pg")
-    assert len(ctxs) == 39 and len({c["context_version"] for c in ctxs}) == 1
+    core = [c for c in ctxs if not c["collection"].startswith("procurement.")]  # procurement exists once it is loaded
+    assert len(core) == 39 and len({c["context_version"] for c in ctxs}) == 1
     doc = tb.load_collection_context(engine.default_ctx, "finance_pg", "ledger_erp.sales_invoices", include_value_profile=True)
     text = doc["content"]
     assert doc["trust"] == "untrusted_data" and f'context_version: "{doc["context_version"]}"' in text
@@ -54,7 +55,8 @@ def test_progressive_loading_respects_permissions(engine):
     tb = engine.toolbox()
     restricted = AccessContext(denied_collections={"finance_pg:portal_app.thread_utterances"})
     names = {c["collection"] for c in tb.list_collection_contexts(restricted, "finance_pg")}
-    assert "portal_app.thread_utterances" not in names and len(names) == 38
+    everything = {c["collection"] for c in tb.list_collection_contexts(engine.default_ctx, "finance_pg")}
+    assert "portal_app.thread_utterances" not in names and names == everything - {"portal_app.thread_utterances"}
     with pytest.raises(AccessDenied):
         tb.load_collection_context(restricted, "finance_pg", "portal_app.thread_utterances")
     with pytest.raises(AccessDenied):

@@ -1,0 +1,392 @@
+{
+  "cases": [
+    {
+      "type": "duplicate_invoice",
+      "ref": "SINV-00414",
+      "related": [
+        "SINV-00077"
+      ],
+      "supplier_id": "SUP-006",
+      "recoverable_usd": 62441.23,
+      "note": "paid twice"
+    },
+    {
+      "type": "duplicate_invoice",
+      "ref": "SINV-00415",
+      "related": [
+        "SINV-00316"
+      ],
+      "supplier_id": "SUP-021",
+      "recoverable_usd": 179503.08,
+      "note": "paid twice"
+    },
+    {
+      "type": "duplicate_invoice",
+      "ref": "SINV-00416",
+      "related": [
+        "SINV-00311"
+      ],
+      "supplier_id": "SUP-021",
+      "recoverable_usd": 212089.94,
+      "note": "paid twice"
+    },
+    {
+      "type": "duplicate_invoice",
+      "ref": "SINV-00417",
+      "related": [
+        "SINV-00191"
+      ],
+      "supplier_id": "SUP-013",
+      "recoverable_usd": 252614.58,
+      "note": "paid twice"
+    },
+    {
+      "type": "duplicate_invoice",
+      "ref": "SINV-00418",
+      "related": [
+        "SINV-00154"
+      ],
+      "supplier_id": "SUP-011",
+      "recoverable_usd": 187380.89,
+      "note": "paid twice"
+    },
+    {
+      "type": "duplicate_invoice",
+      "ref": "SINV-00419",
+      "related": [
+        "SINV-00256"
+      ],
+      "supplier_id": "SUP-017",
+      "recoverable_usd": 38471.71,
+      "note": "paid twice"
+    },
+    {
+      "type": "duplicate_invoice",
+      "ref": "SINV-00420",
+      "related": [
+        "SINV-00079"
+      ],
+      "supplier_id": "SUP-006",
+      "recoverable_usd": 9603.46,
+      "note": "paid twice"
+    },
+    {
+      "type": "duplicate_invoice",
+      "ref": "SINV-00421",
+      "related": [
+        "SINV-00313"
+      ],
+      "supplier_id": "SUP-021",
+      "recoverable_usd": 249041.48,
+      "note": "not yet paid: hold the payment"
+    },
+    {
+      "type": "price_variance",
+      "ref": "SINV-00119",
+      "related": [
+        "SIL-000324"
+      ],
+      "supplier_id": "SUP-009",
+      "recoverable_usd": 88.96,
+      "note": "MNT-HR invoiced 8% above the contract rate"
+    },
+    {
+      "type": "price_variance",
+      "ref": "SINV-00254",
+      "related": [
+        "SIL-000677"
+      ],
+      "supplier_id": "SUP-017",
+      "recoverable_usd": 90.35,
+      "note": "MNT-HR invoiced 11% above the contract rate"
+    },
+    {
+      "type": "price_variance",
+      "ref": "SINV-00251",
+      "related": [
+        "SIL-000669"
+      ],
+      "supplier_id": "SUP-017",
+      "recoverable_usd": 5014.05,
+      "note": "CLN-MO invoiced 10% above the contract rate"
+    },
+    {
+      "type": "price_variance",
+      "ref": "SINV-00314",
+      "related": [
+        "SIL-000853"
+      ],
+      "supplier_id": "SUP-021",
+      "recoverable_usd": 2162.7,
+      "note": "CON-DAY invoiced 18% above the contract rate"
+    },
+    {
+      "type": "price_variance",
+      "ref": "SINV-00174",
+      "related": [
+        "SIL-000467"
+      ],
+      "supplier_id": "SUP-012",
+      "recoverable_usd": 2562.46,
+      "note": "TRV-AIR invoiced 13% above the contract rate"
+    },
+    {
+      "type": "price_variance",
+      "ref": "SINV-00262",
+      "related": [
+        "SIL-000700"
+      ],
+      "supplier_id": "SUP-017",
+      "recoverable_usd": 8.01,
+      "note": "MNT-HR invoiced 13% above the contract rate"
+    },
+    {
+      "type": "price_variance",
+      "ref": "SINV-00120",
+      "related": [
+        "SIL-000327"
+      ],
+      "supplier_id": "SUP-009",
+      "recoverable_usd": 329.8,
+      "note": "MNT-HR invoiced 14% above the contract rate"
+    },
+    {
+      "type": "price_variance",
+      "ref": "SINV-00112",
+      "related": [
+        "SIL-000306"
+      ],
+      "supplier_id": "SUP-008",
+      "recoverable_usd": 92.1,
+      "note": "HDL-HR invoiced 15% above the contract rate"
+    },
+    {
+      "type": "missed_discount",
+      "ref": "SINV-00022",
+      "related": [],
+      "supplier_id": "SUP-002",
+      "recoverable_usd": 3102.86,
+      "note": "2% discount available within 10 days; paid later"
+    },
+    {
+      "type": "missed_discount",
+      "ref": "SINV-00212",
+      "related": [],
+      "supplier_id": "SUP-014",
+      "recoverable_usd": 172.27,
+      "note": "2% discount available within 10 days; paid later"
+    },
+    {
+      "type": "missed_discount",
+      "ref": "SINV-00226",
+      "related": [],
+      "supplier_id": "SUP-015",
+      "recoverable_usd": 2294.61,
+      "note": "2% discount available within 10 days; paid later"
+    },
+    {
+      "type": "missed_discount",
+      "ref": "SINV-00380",
+      "related": [],
+      "supplier_id": "SUP-025",
+      "recoverable_usd": 3996.91,
+      "note": "2% discount available within 10 days; paid later"
+    },
+    {
+      "type": "missed_discount",
+      "ref": "SINV-00029",
+      "related": [],
+      "supplier_id": "SUP-002",
+      "recoverable_usd": 2125.12,
+      "note": "2% discount available within 10 days; paid later"
+    },
+    {
+      "type": "missed_discount",
+      "ref": "SINV-00204",
+      "related": [],
+      "supplier_id": "SUP-014",
+      "recoverable_usd": 3948.21,
+      "note": "2% discount available within 10 days; paid later"
+    },
+    {
+      "type": "missed_discount",
+      "ref": "SINV-00338",
+      "related": [],
+      "supplier_id": "SUP-022",
+      "recoverable_usd": 1946.23,
+      "note": "2% discount available within 10 days; paid later"
+    },
+    {
+      "type": "missed_discount",
+      "ref": "SINV-00281",
+      "related": [],
+      "supplier_id": "SUP-018",
+      "recoverable_usd": 3664.02,
+      "note": "2% discount available within 10 days; paid later"
+    },
+    {
+      "type": "overpayment",
+      "ref": "SINV-00083",
+      "related": [],
+      "supplier_id": "SUP-006",
+      "recoverable_usd": 423.19,
+      "note": "payments exceed the invoice amount"
+    },
+    {
+      "type": "overpayment",
+      "ref": "SINV-00129",
+      "related": [],
+      "supplier_id": "SUP-010",
+      "recoverable_usd": 23960.6,
+      "note": "payments exceed the invoice amount"
+    },
+    {
+      "type": "overpayment",
+      "ref": "SINV-00052",
+      "related": [],
+      "supplier_id": "SUP-004",
+      "recoverable_usd": 3737.49,
+      "note": "payments exceed the invoice amount"
+    },
+    {
+      "type": "overpayment",
+      "ref": "SINV-00044",
+      "related": [],
+      "supplier_id": "SUP-004",
+      "recoverable_usd": 280.5,
+      "note": "payments exceed the invoice amount"
+    },
+    {
+      "type": "overpayment",
+      "ref": "SINV-00265",
+      "related": [],
+      "supplier_id": "SUP-017",
+      "recoverable_usd": 63.6,
+      "note": "payments exceed the invoice amount"
+    },
+    {
+      "type": "overpayment",
+      "ref": "SINV-00158",
+      "related": [],
+      "supplier_id": "SUP-011",
+      "recoverable_usd": 21847.68,
+      "note": "payments exceed the invoice amount"
+    },
+    {
+      "type": "unused_saas",
+      "ref": "SUB-001",
+      "related": [],
+      "supplier_id": "SUP-003",
+      "recoverable_usd": 1200.0,
+      "note": "4 seats without a login in 60 days"
+    },
+    {
+      "type": "unused_saas",
+      "ref": "SUB-002",
+      "related": [],
+      "supplier_id": "SUP-004",
+      "recoverable_usd": 2700.0,
+      "note": "5 seats without a login in 60 days"
+    },
+    {
+      "type": "unused_saas",
+      "ref": "SUB-003",
+      "related": [],
+      "supplier_id": "SUP-007",
+      "recoverable_usd": 576.0,
+      "note": "4 seats without a login in 60 days"
+    },
+    {
+      "type": "unused_saas",
+      "ref": "SUB-004",
+      "related": [],
+      "supplier_id": "SUP-019",
+      "recoverable_usd": 6300.0,
+      "note": "15 seats without a login in 60 days"
+    },
+    {
+      "type": "unused_saas",
+      "ref": "SUB-005",
+      "related": [],
+      "supplier_id": "SUP-020",
+      "recoverable_usd": 720.0,
+      "note": "5 seats without a login in 60 days"
+    },
+    {
+      "type": "unused_saas",
+      "ref": "SUB-006",
+      "related": [],
+      "supplier_id": "SUP-023",
+      "recoverable_usd": 1620.0,
+      "note": "3 seats without a login in 60 days"
+    },
+    {
+      "type": "unused_saas",
+      "ref": "SUB-007",
+      "related": [],
+      "supplier_id": "SUP-003",
+      "recoverable_usd": 864.0,
+      "note": "4 seats without a login in 60 days"
+    },
+    {
+      "type": "unused_saas",
+      "ref": "SUB-008",
+      "related": [],
+      "supplier_id": "SUP-004",
+      "recoverable_usd": 1200.0,
+      "note": "4 seats without a login in 60 days"
+    }
+  ],
+  "legitimate_exceptions": [
+    {
+      "type": "duplicate_invoice",
+      "ref": "SINV-00387",
+      "why": "monthly retainer: same amount every month, different periods"
+    },
+    {
+      "type": "duplicate_invoice",
+      "ref": "SINV-00397",
+      "why": "monthly retainer: same amount every month, different periods"
+    },
+    {
+      "type": "duplicate_invoice",
+      "ref": "SINV-00407",
+      "why": "monthly retainer: same amount every month, different periods"
+    },
+    {
+      "type": "price_variance",
+      "ref": "SINV-00001",
+      "why": "price includes the agreed 5% escalation"
+    },
+    {
+      "type": "price_variance",
+      "ref": "SINV-00003",
+      "why": "price includes the agreed 5% escalation"
+    },
+    {
+      "type": "price_variance",
+      "ref": "SINV-00006",
+      "why": "price includes the agreed 5% escalation"
+    },
+    {
+      "type": "missed_discount",
+      "ref": "SINV-00054",
+      "why": "invoice was on hold for a dispute"
+    },
+    {
+      "type": "missed_discount",
+      "ref": "SINV-00227",
+      "why": "invoice was on hold for a dispute"
+    },
+    {
+      "type": "unused_saas",
+      "ref": "SUB-009",
+      "why": "seats assigned in the last 30 days"
+    },
+    {
+      "type": "unused_saas",
+      "ref": "SUB-010",
+      "why": "seats assigned in the last 30 days"
+    }
+  ]
+}

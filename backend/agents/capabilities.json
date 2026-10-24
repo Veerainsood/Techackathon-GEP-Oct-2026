@@ -6,10 +6,11 @@
     {"id": "explain_answers", "description": "Show how an answer was produced: the SQL, the tables used, the evidence and the verification checks."},
     {"id": "freshness", "description": "Report which data sources are connected and when each was last synced."},
     {"id": "change_monitoring", "description": "Receive sync events from connected systems (HubSpot), check what changed and flag saved answers that the change made out of date."},
-    {"id": "exports", "description": "Export verified results as Excel or CSV."}
+    {"id": "exports", "description": "Export verified results as Excel or CSV."},
+    {"id": "leakage_hunting", "description": "Continuously hunt spend leakage across suppliers, purchase orders, contracts, invoices, payments and SaaS licences: duplicate invoices, prices above contract, missed early-payment discounts, overpayments and unused seats. Each case has evidence, a root cause, a confidence score and recoverable value (the 'leakage' source). Recovery actions (claw-back, refund, credit note, payment hold, seat reduction) are drafted for approval and only executed after a person approves."}
   ],
   "cannot": [
-    "Change data, pay invoices, approve payments or sign contracts; approvals are recorded in the Approvals screen only.",
+    "Change data, pay invoices, approve payments or sign contracts on its own; recovery actions run only after approval, through a mock AP system.",
     "Answer from general knowledge or the internet; answers come only from the connected data.",
     "Read data sources that are not connected or that the user is not authorized to see."
   ]

@@ -8,7 +8,19 @@ import { Sidebar, type View } from './components/Sidebar'
 import { Thread } from './components/Thread'
 import { initialActions, liveEvents, overnightRuns, type Action } from './data'
 import { NotificationButton, NotificationsPanel } from './components/NotificationsPanel'
-import { LIVE, toAction, toActivity, toFeed, toGoals, toSource, toTimeline, useLiveData } from './live/adapter'
+import {
+  LIVE,
+  leakageKpis,
+  toAction,
+  toActivity,
+  toFeed,
+  toGoals,
+  toLeakageFeed,
+  toLeakageGoals,
+  toSource,
+  toTimeline,
+  useLiveData,
+} from './live/adapter'
 import { api, type AskRequest, type ConversationRow } from './live/api'
 import { LiveThread, type Turn } from './live/LiveThread'
 
@@ -342,11 +354,19 @@ export default function App() {
             onSubmit={ask}
             pendingCount={pendingCount}
             paused={paused}
-            feed={feed}
+            feed={LIVE ? [...toLeakageFeed(live.leakageCases), ...feed] : feed}
             onOpenAction={setOpenId}
-            goals={LIVE ? toGoals(live.sources, live.events) : undefined}
+            goals={LIVE ? [...toLeakageGoals(live.leakage), ...toGoals(live.sources, live.events)] : undefined}
             handledTotal={handledTotal}
             sourceCount={sourceCount}
+            kpis={LIVE ? leakageKpis(live.leakage) : undefined}
+            onGoal={
+              LIVE
+                ? (g) =>
+                    live.leakage?.by_type[g.id] &&
+                    ask(`Show the open ${g.title.toLowerCase()} cases with the highest recoverable value, with supplier and root cause`)
+                : undefined
+            }
           />
         )}
         {view === 'thread' &&

@@ -17,7 +17,6 @@ from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
 import psycopg2
 from psycopg2.extras import execute_values
-from psycopg2.pool import ThreadedConnectionPool
 
 from backend.contracts.models import (
     EdgeType,
@@ -28,6 +27,7 @@ from backend.contracts.models import (
     VerificationStatus,
 )
 from backend.ontology.embedding import DIM, embed, to_pgvector
+from backend.pg_pool import shared_pool
 
 VERIFIABLE_EVIDENCE = {"query_result", "schema_constraint", "reconciliation_check", "column_profile", "row_sample"}
 
@@ -97,7 +97,7 @@ def _now() -> datetime:
 class KnowledgeGraph:
     def __init__(self, uri: str):
         self.uri = uri
-        self._pool = ThreadedConnectionPool(1, 12, uri, connect_timeout=5)
+        self._pool = shared_pool(uri)
         self._lock = threading.Lock()
         with self._cursor() as cur:
             cur.execute(DDL)
@@ -126,7 +126,7 @@ class KnowledgeGraph:
         return KnowledgeGraph._Cur(self)
 
     def close(self) -> None:
-        self._pool.closeall()
+        pass  # the pool is shared by every store on this database
 
     # ------------------------------------------------------------------ evidence
     def add_evidence(self, evidence: Sequence[EvidenceReference], tenant: str = "default") -> None:

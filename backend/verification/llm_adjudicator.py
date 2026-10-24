@@ -17,10 +17,22 @@ from typing import Any, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, Field, ValidationError
 
-from backend.agents.llm_agent import serialize_result
+from backend.agents.llm_agent import _escape, serialize_result
 from backend.agents.prompts import ADJUDICATOR_SYSTEM
 from backend.contracts.models import AdjudicationDecision, AgentReasoningCandidate, ValidationFinding, VerificationStatus
 from backend.llm.base import LLMProvider, LLMUnavailable, ToolSpec, Usage
+
+EVIDENCE_BUDGET = 40000
+
+
+def _evidence_block(payload: Dict[str, Any]) -> str:
+    """Both candidates must reach the model whole; a truncated second candidate reads as missing evidence."""
+    text = json.dumps(payload, default=str)
+    if len(text) > EVIDENCE_BUDGET:
+        for c in payload.get("candidates", {}).values():
+            c["result_rows"], c["evidence"] = c["result_rows"][:8], c["evidence"][:6]
+        text = json.dumps(payload, default=str)[:EVIDENCE_BUDGET] + ' ... [system: evidence shortened to fit]'
+    return f'<untrusted_data tool="evidence">\n{_escape(text)}\n</untrusted_data>'
 
 
 class VerificationAction(BaseModel):
@@ -95,7 +107,7 @@ class LLMAdjudicator:
         usage = Usage()
         payload = self._payload(question, cands, findings, det, consistency, manifest)
         messages: List[Dict[str, Any]] = [{"role": "user", "content": [{"type": "text", "text":
-                                           "Adjudicate using only this evidence:\n" + serialize_result("evidence", payload)}]}]
+                                           "Adjudicate using only this evidence:\n" + _evidence_block(payload)}]}]
         verdict = asyncio.run(self._ask(messages, usage))
         emit({"agent": "Adjudicator", "event": "verdict", "status": verdict.status, "selected": verdict.selected_agent,
               "rationale": verdict.rationale[:600]})
@@ -158,8 +170,12 @@ class LLMAdjudicator:
                 return d
             d.selected_path, d.agreement_status = "Abstained_With_Uncertainty", "material_uncertainty"
             d.verification_status = VerificationStatus.INFERRED_CANDIDATE
-            d.final_answer = ("Unresolved: the candidates' evidence does not support a single answer. " + v.rationale[:500] +
-                              " Candidates: " + "; ".join(f"{n}: {c.final_answer_candidate}" for n, c in cands.items()))
+            # User-facing text never names the internal agents; the full reasoning stays in disagreement_analysis.
+            d.disagreement_analysis = ((d.disagreement_analysis or "") + f" | adjudicator ({self.provider.model}): {v.rationale[:600]}").strip(" |")
+            best = next((c for c in cands.values() if c.structured_value is not None and c.final_answer_candidate), None)
+            d.final_answer = ("I couldn't fully verify this against the data, so treat it as unconfirmed."
+                              + (f"\n\nBest available reading:\n\n{best.final_answer_candidate}" if best else
+                                 " Try narrowing the question (a period, a supplier or a status)."))
             d.final_structured_data = [{"agent": n, "value": c.structured_value} for n, c in cands.items()]
             d.winning_query = ""
         return d

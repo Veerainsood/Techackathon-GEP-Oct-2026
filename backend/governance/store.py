@@ -15,7 +15,8 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from psycopg2.extras import Json
-from psycopg2.pool import ThreadedConnectionPool
+
+from backend.pg_pool import shared_pool
 
 MODES = ("auto", "approve", "never")
 APPROVAL_STATUSES = ("pending", "approved", "rejected")
@@ -86,7 +87,7 @@ def _guardrail(row: Dict[str, Any]) -> Dict[str, Any]:
 
 class GovernanceStore:
     def __init__(self, uri: str):
-        self._pool = ThreadedConnectionPool(1, 8, uri, connect_timeout=5)
+        self._pool = shared_pool(uri)
         self._exec(DDL)
 
     def _exec(self, sql: str, params: Any = None, fetch: str = "") -> Any:

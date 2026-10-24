@@ -13,10 +13,10 @@ import hashlib
 import json
 from typing import Any, Dict, List, Optional
 
-from psycopg2.pool import ThreadedConnectionPool
 
 from backend.gateway.registry import AccessContext
 from backend.ontology.embedding import DIM, embed, to_pgvector
+from backend.pg_pool import shared_pool
 
 DDL = f"""
 CREATE EXTENSION IF NOT EXISTS vector;
@@ -46,7 +46,7 @@ KINDS = {"query_template", "failed_query", "value_mapping", "metric_usage", "sch
 
 class LearningStore:
     def __init__(self, uri: str):
-        self._pool = ThreadedConnectionPool(1, 8, uri, connect_timeout=5)
+        self._pool = shared_pool(uri)
         self._exec(DDL)
 
     def _exec(self, sql: str, params: Any = None, fetch: bool = False):

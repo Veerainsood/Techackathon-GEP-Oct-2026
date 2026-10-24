@@ -148,6 +148,29 @@ export interface PrepJob {
   pending: number
   rows?: number | null
 }
+export interface LeakageCase {
+  case_id: string
+  leakage_type: string
+  type_label: string
+  record_id: string
+  supplier_name: string | null
+  recoverable_usd: number
+  confidence: number
+  priority_score: number
+  root_cause: string
+  status: 'open' | 'awaiting_approval' | 'executed' | 'dismissed' | 'resolved'
+  recovery: { request_id?: string; status?: string; request_type?: string } | null
+  first_seen: string
+}
+export interface LeakageSummary {
+  cases: number
+  recoverable_usd: number
+  awaiting_approval: number
+  executed: number
+  recovered_usd: number
+  dismissed: number
+  by_type: Record<string, { label: string; cases: number; recoverable_usd: number; open: number; executed: number }>
+}
 export interface ConversationRow {
   conversation_id: string
   title: string
@@ -195,6 +218,8 @@ export const api = {
   answers: () => request<AnswerRow[]>('/runtime/answers'),
   files: () => request<StoredFile[]>('/files'),
   conversations: () => request<ConversationRow[]>('/conversations'),
+  leakageSummary: () => request<LeakageSummary>('/leakage/summary'),
+  leakageCases: () => request<LeakageCase[]>('/leakage/cases'),
   deleteConversation: (id: string) => request<{ deleted: string }>(`/conversations/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   // Every upload is checked by the data-prep agent in the sandbox before questions use it.
   prepFiles: (fileIds: string[]) =>

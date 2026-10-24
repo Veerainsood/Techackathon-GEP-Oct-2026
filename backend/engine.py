@@ -58,6 +58,7 @@ class Engine:
     intent: Any = None
     conversations: Any = None
     prep: Any = None
+    leakage: Any = None
     _ctx_cache: Dict[Tuple[str, str, bool], CompiledSemanticContext] = field(default_factory=dict)
     _lock: threading.Lock = field(default_factory=threading.Lock)
 
@@ -238,5 +239,13 @@ def build_engine(settings: Optional[Settings] = None, register_defaults: bool = 
     engine.conversations = ConversationStore(knowledge_uri)
     from backend.prep.service import PrepJobStore, PrepService
     engine.prep = PrepService(engine, prep_llm, PrepJobStore(knowledge_uri))
+    from backend.leakage.service import LeakageService
+    engine.leakage = LeakageService(engine, knowledge_uri)
+    if register_defaults:
+        # Detected leakage cases, readable by the agents like any other data (read-only, one table).
+        gateway.register(PostgresSourceAdapter("leakage", knowledge_uri, name="Leakage cases",
+                                               description="Spend leakage cases found by the detectors, with recoverable value, "
+                                                           "confidence, root cause and recovery status",
+                                               include_collections=["backend_runtime.leakage_cases"]), tenants=settings.tenants)
     engine.workflow = DualPathWorkflow(engine)
     return engine

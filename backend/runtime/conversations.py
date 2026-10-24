@@ -13,7 +13,8 @@ from typing import Any, Dict, List, Optional
 
 import psycopg2.errors
 from psycopg2.extras import Json
-from psycopg2.pool import ThreadedConnectionPool
+
+from backend.pg_pool import shared_pool
 
 DDL = """
 CREATE SCHEMA IF NOT EXISTS backend_runtime;
@@ -48,7 +49,7 @@ class ConversationNotFound(KeyError):
 
 class ConversationStore:
     def __init__(self, uri: str):
-        self._pool = ThreadedConnectionPool(1, 8, uri, connect_timeout=5)
+        self._pool = shared_pool(uri)
         self._exec(DDL)
 
     def _exec(self, sql: str, params: Any = None, fetch: str = "") -> Any:

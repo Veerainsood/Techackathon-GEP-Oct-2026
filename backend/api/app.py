@@ -35,6 +35,9 @@ def engine() -> Engine:
     e = build_engine()
     if os.environ.get("BACKEND_EVENT_WORKER", "1") == "1":
         e.consumer.start(poll_s=float(os.environ.get("BACKEND_EVENT_POLL_S", "1.0")))
+    sweep_s = float(os.environ.get("BACKEND_LEAKAGE_SWEEP_S", "900"))
+    if sweep_s > 0 and e.leakage:
+        e.leakage.start_sweeper(sweep_s)  # always running: detectors also run after procurement sync events
     return e
 
 
@@ -600,12 +603,37 @@ def decide_approval(approval_id: str, body: ApprovalDecision, ctx: AccessContext
         raise HTTPException(404, f"unknown approval {approval_id}")
     except ApprovalConflict as exc:
         raise HTTPException(409, str(exc))
-    if engine().prep and (row.get("payload") or {}).get("kind") == "prep_fix":
-        try:
+    kind = (row.get("payload") or {}).get("kind")
+    try:
+        if engine().prep and kind == "prep_fix":
             engine().prep.decided(ctx.tenant_id, row)  # applies the approved fixes once every fix of the job is decided
-        except Exception as exc:
-            raise HTTPException(502, f"decision recorded, but applying the fix failed: {type(exc).__name__}: {exc}")
+        elif engine().leakage and kind == "leakage_recovery":
+            engine().leakage.decided(ctx.tenant_id, row)  # approved: sent to the mock AP API; rejected: case dismissed
+    except Exception as exc:
+        raise HTTPException(502, f"decision recorded, but carrying it out failed: {type(exc).__name__}: {exc}")
     return row
+
+
+# ============================================================================ spend leakage
+@app.post("/leakage/scan")
+def leakage_scan(ctx: AccessContext = Depends(access)) -> Dict[str, Any]:
+    return engine().leakage.scan(ctx.tenant_id)
+
+
+@app.get("/leakage/summary")
+def leakage_summary(ctx: AccessContext = Depends(access)) -> Dict[str, Any]:
+    return engine().leakage.summary(ctx.tenant_id)
+
+
+@app.get("/leakage/cases")
+def leakage_cases(status: Optional[str] = None, ctx: AccessContext = Depends(access)) -> List[Dict[str, Any]]:
+    return engine().leakage.cases(ctx.tenant_id, status)
+
+
+@app.get("/mock-ap/requests")
+def mock_ap_requests(ctx: AccessContext = Depends(access)) -> List[Dict[str, Any]]:
+    """Requests the recovery agent sent to the mock AP / ERP API after approval."""
+    return engine().leakage.mock_ap_requests(ctx.tenant_id)
 
 
 # ============================================================================ data preparation (sandbox)
