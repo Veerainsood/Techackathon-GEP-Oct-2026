@@ -166,6 +166,19 @@ class ChangeInvestigator:
             "collections": [f.__dict__ for f in findings], "ms": round((time.perf_counter() - t0) * 1000, 1),
         }
         summary["stage_b"] = self._stage_b(ctx, ev, summary)
+        hubspot = {"hubspot.contacts", "pipeline_crm.prospect_accounts"}
+        if ev.source_id == "hubspot" and changed and set(changed) & hubspot and getattr(self.e, "autopilot", None):
+            try:  # HubSpot is the autopilot trigger: stage changes lead to decisions on invoices and contracts
+                summary["autopilot"] = self.e.autopilot.on_hubspot_event(ev.tenant_id)
+            except Exception as exc:
+                summary["autopilot"] = {"error": f"{type(exc).__name__}: {str(exc)[:200]}"}
+        scoped = {"ledger_erp.sales_invoices": "pending_invoices", "agreements.agreement_files": "pending_contracts"}
+        for coll in [scoped[c] for c in changed or [] if c in scoped]:
+            if getattr(self.e, "policies", None):
+                try:  # invoices or contracts changed: re-check them against the policies
+                    summary.setdefault("policy_check", {}).update(self.e.policies.refresh(ev.tenant_id, coll))
+                except Exception as exc:
+                    summary["policy_check"] = {"error": f"{type(exc).__name__}: {str(exc)[:200]}"}
         if changed and any(c.startswith("procurement.") for c in changed) and getattr(self.e, "leakage", None):
             try:  # new purchasing, invoice, payment or licence data: hunt for leakage right away
                 summary["leakage"] = self.e.leakage.scan(ev.tenant_id)

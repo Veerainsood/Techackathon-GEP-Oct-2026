@@ -13,10 +13,12 @@ import {
   leakageKpis,
   toAction,
   toActivity,
+  toAutopilotFeed,
   toFeed,
   toGoals,
   toLeakageFeed,
   toLeakageGoals,
+  toPolicyGoals,
   toSource,
   toTimeline,
   useLiveData,
@@ -39,6 +41,13 @@ export default function App() {
   const [actions, setActions] = useState<Action[]>(LIVE ? [] : initialActions)
   const [openId, setOpenId] = useState<string | null>(null)
   const [paused, setPaused] = useState(false)
+  useEffect(() => {
+    if (LIVE)
+      api
+        .autopilotStatus()
+        .then((s) => setPaused(s.paused))
+        .catch(() => undefined)
+  }, [])
   const [toast, setToast] = useState<string | null>(null)
 
   const [demoFeed, setFeed] = useState<FeedItem[]>([])
@@ -278,7 +287,7 @@ export default function App() {
       try {
         const row = await api.decideApproval(id, approved)
         setActions((prev) => prev.map((a) => (a.id === id ? toAction(row) : a)))
-        setToast(approved ? `${id} approved and recorded · not executed (no connector yet)` : `${id} rejected and recorded`)
+        setToast(approved ? `${id} approved · checked against the policies and recorded` : `${id} rejected and recorded`)
       } catch (err) {
         setToast(`Decision not saved: ${err instanceof Error ? err.message : String(err)}`)
       }
@@ -334,8 +343,14 @@ export default function App() {
         pendingCount={pendingCount}
         paused={paused}
         onTogglePause={() => {
-          setPaused((p) => !p)
-          setToast(paused ? 'Agent resumed' : 'Emergency stop: autonomous execution paused')
+          const next = !paused
+          setPaused(next)
+          setToast(next ? 'Emergency stop: autonomous execution paused' : 'Agent resumed')
+          if (LIVE)
+            api.setAutopilotPaused(next).catch((err) => {
+              setPaused(!next)
+              setToast(`Could not ${next ? 'pause' : 'resume'} autopilot: ${err instanceof Error ? err.message : String(err)}`)
+            })
         }}
         hasThread={!!query}
         recent={LIVE ? conversations.map((c) => c.title) : undefined}
@@ -374,9 +389,13 @@ export default function App() {
             onSubmit={ask}
             pendingCount={pendingCount}
             paused={paused}
-            feed={LIVE ? [...toLeakageFeed(live.leakageCases), ...feed] : feed}
+            feed={LIVE ? [...toAutopilotFeed(live.autopilot, live.policyEvents), ...toLeakageFeed(live.leakageCases), ...feed] : feed}
             onOpenAction={setOpenId}
-            goals={LIVE ? [...toLeakageGoals(live.leakage), ...toGoals(live.sources, live.events)] : undefined}
+            goals={
+              LIVE
+                ? [...toPolicyGoals(live.policies, live.autopilot), ...toLeakageGoals(live.leakage), ...toGoals(live.sources, live.events)]
+                : undefined
+            }
             handledTotal={handledTotal}
             sourceCount={sourceCount}
             kpis={LIVE ? leakageKpis(live.leakage) : undefined}

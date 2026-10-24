@@ -7,6 +7,7 @@ Identity is taken from ``X-Tenant-Id`` / ``X-User-Id`` headers (replace with rea
 from __future__ import annotations
 
 import shutil
+import threading
 from functools import lru_cache
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -38,7 +39,20 @@ def engine() -> Engine:
     sweep_s = float(os.environ.get("BACKEND_LEAKAGE_SWEEP_S", "900"))
     if sweep_s > 0 and e.leakage:
         e.leakage.start_sweeper(sweep_s)  # always running: detectors also run after procurement sync events
+    if os.environ.get("BACKEND_POLICY_STARTUP", "1") == "1" and e.policies:
+        threading.Thread(target=_policy_startup, args=(e,), daemon=True, name="policy-startup").start()
     return e
+
+
+def _policy_startup(e: Engine) -> None:
+    """Check every pending invoice and contract against the policies, and learn the current HubSpot stages."""
+    for tenant in e.settings.tenants:
+        try:
+            e.policies.list(tenant)
+            e.policies.refresh(tenant)
+            e.autopilot.prime(tenant)
+        except Exception:
+            pass  # retried on the next policy change or event
 
 
 def result_payload(state: Dict[str, Any], question: str, include_candidates: bool = False) -> Dict[str, Any]:
@@ -609,9 +623,135 @@ def decide_approval(approval_id: str, body: ApprovalDecision, ctx: AccessContext
             engine().prep.decided(ctx.tenant_id, row)  # applies the approved fixes once every fix of the job is decided
         elif engine().leakage and kind == "leakage_recovery":
             engine().leakage.decided(ctx.tenant_id, row)  # approved: sent to the mock AP API; rejected: case dismissed
+        elif engine().autopilot and kind == "autopilot_action":
+            engine().autopilot.decided(ctx.tenant_id, row)  # approved: policies checked again, then recorded as done
     except Exception as exc:
         raise HTTPException(502, f"decision recorded, but carrying it out failed: {type(exc).__name__}: {exc}")
     return row
+
+
+# ============================================================================ policies and autopilot
+@app.get("/policies")
+def list_policies(ctx: AccessContext = Depends(access)) -> List[Dict[str, Any]]:
+    """Policies with how many pending records each covers and how many violate it."""
+    return engine().policies.summary(ctx.tenant_id)
+
+
+@app.get("/policies/catalog")
+def policy_catalog(ctx: AccessContext = Depends(access)) -> Dict[str, Any]:
+    """What a policy can constrain, from the data: collections, fields, their values or ranges, and regions."""
+    return engine().policies.catalog(ctx.tenant_id)
+
+
+def _policy_error(exc: Exception) -> HTTPException:
+    from backend.policies.engine import PolicyRejected
+
+    if isinstance(exc, PolicyRejected):
+        return HTTPException(409 if exc.conflicts else 400, {"message": str(exc), "conflicts": exc.conflicts})
+    if isinstance(exc, KeyError):
+        return HTTPException(404, f"unknown policy {exc}")
+    raise exc
+
+
+@app.post("/policies")
+def create_policy(body: Dict[str, Any], ctx: AccessContext = Depends(access)) -> Dict[str, Any]:
+    from backend.policies.engine import PolicyIn
+
+    try:
+        return engine().policies.save(ctx.tenant_id, PolicyIn(**body), ctx.user_id)
+    except Exception as exc:
+        raise _policy_error(exc)
+
+
+@app.put("/policies/{policy_id}")
+def update_policy(policy_id: str, body: Dict[str, Any], ctx: AccessContext = Depends(access)) -> Dict[str, Any]:
+    from backend.policies.engine import PolicyIn
+
+    try:
+        return engine().policies.save(ctx.tenant_id, PolicyIn(**body), ctx.user_id, policy_id=policy_id)
+    except Exception as exc:
+        raise _policy_error(exc)
+
+
+@app.delete("/policies/{policy_id}")
+def delete_policy(policy_id: str, ctx: AccessContext = Depends(access)) -> Dict[str, Any]:
+    try:
+        engine().policies.delete(ctx.tenant_id, policy_id, ctx.user_id)
+    except Exception as exc:
+        raise _policy_error(exc)
+    return {"deleted": policy_id}
+
+
+@app.post("/policies/refresh")
+def refresh_policies(ctx: AccessContext = Depends(access)) -> Dict[str, Any]:
+    """Check every pending invoice and contract against the policies now."""
+    return engine().policies.refresh(ctx.tenant_id)
+
+
+@app.get("/policies/states")
+def policy_states(collection: Optional[str] = None, decision: Optional[str] = None, ctx: AccessContext = Depends(access)) -> List[Dict[str, Any]]:
+    return engine().policies.states(ctx.tenant_id, collection, decision)
+
+
+@app.get("/policies/events")
+def policy_events(ctx: AccessContext = Depends(access)) -> List[Dict[str, Any]]:
+    return engine().policies.events(ctx.tenant_id)
+
+
+class EvaluateRequest(BaseModel):
+    collection: str
+    record_id: str
+    changes: Dict[str, Any] = Field(default_factory=dict)
+
+
+@app.post("/policies/evaluate")
+def evaluate_policy(body: EvaluateRequest, ctx: AccessContext = Depends(access)) -> Dict[str, Any]:
+    """Dry run: what the policies decide for a record, or for the state a change would produce."""
+    import re
+
+    from backend.policies.engine import SCOPES
+
+    if body.collection not in SCOPES or not re.fullmatch(r"[A-Za-z0-9_.\-]+", body.record_id):
+        raise HTTPException(400, "unknown collection or invalid record id")
+    key = "a.agreement_id" if body.collection == "pending_contracts" else "i.invoice_id"
+    rows = engine().policies.records(ctx.tenant_id, body.collection, f"{key} = '{body.record_id}'")
+    if not rows:
+        raise HTTPException(404, f"{body.record_id} is not a pending record")
+    return engine().policies.evaluate(ctx.tenant_id, body.collection, rows[0], body.changes)
+
+
+@app.get("/autopilot/actions")
+def autopilot_actions(ctx: AccessContext = Depends(access)) -> List[Dict[str, Any]]:
+    return engine().autopilot.actions(ctx.tenant_id)
+
+
+@app.get("/autopilot/status")
+def autopilot_status(ctx: AccessContext = Depends(access)) -> Dict[str, Any]:
+    return {"paused": engine().autopilot.paused(ctx.tenant_id)}
+
+
+class PauseRequest(BaseModel):
+    paused: bool
+
+
+@app.post("/autopilot/status")
+def set_autopilot_status(body: PauseRequest, ctx: AccessContext = Depends(access)) -> Dict[str, Any]:
+    """Emergency stop: while paused, autopilot records what it would do but does nothing."""
+    return engine().autopilot.set_paused(ctx.tenant_id, body.paused, ctx.user_id)
+
+
+class SimulateRequest(BaseModel):
+    email: str
+    lifecyclestage: str = "customer"
+
+
+@app.post("/autopilot/simulate")
+def simulate_hubspot_change(body: SimulateRequest, ctx: AccessContext = Depends(access)) -> Dict[str, Any]:
+    """Demo: run autopilot as if HubSpot reported this contact's stage change (nothing changes in HubSpot or the data)."""
+    try:
+        return engine().autopilot.simulate(ctx.tenant_id, body.email, body.lifecyclestage)
+    except KeyError:
+        raise HTTPException(404, f"no HubSpot contact {body.email}")
 
 
 # ============================================================================ spend leakage
