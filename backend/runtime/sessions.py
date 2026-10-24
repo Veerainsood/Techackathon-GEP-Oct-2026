@@ -62,9 +62,24 @@ class WorkspaceManager:
     def list(self, ctx: AccessContext) -> List[Dict[str, Any]]:
         return [w for w in self._ws.values() if w["tenant_id"] == ctx.tenant_id and w["owner"] == ctx.user_id]
 
+    def expire_missing(self) -> int:
+        """Close workspaces whose files were removed by retention; returns how many were closed."""
+        with self._lock:
+            gone = [w for w in self._ws.values()
+                    if any(not self.e.files._dir(w["tenant_id"], "upload", f["file_id"]).exists() for f in w["files"])]
+        for w in gone:
+            self._drop(w)
+        return len(gone)
+
     def close(self, ctx: AccessContext, ws_id: str) -> None:
-        info = self.get(ctx, ws_id)
-        self.e.gateway.unregister(info["source_id"])
+        self._drop(self.get(ctx, ws_id))
+
+    def _drop(self, info: Dict[str, Any]) -> None:
+        ws_id = info["workspace_id"]
+        try:
+            self.e.gateway.unregister(info["source_id"])
+        except Exception:
+            pass
         self.e.kg.delete_tenant(info["namespace"])
         if self.e.contexts:
             self.e.contexts.delete_tenant(info["namespace"])

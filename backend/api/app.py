@@ -40,6 +40,9 @@ def engine() -> Engine:
     sweep_s = float(os.environ.get("BACKEND_LEAKAGE_SWEEP_S", "900"))
     if sweep_s > 0 and e.leakage:
         e.leakage.start_sweeper(sweep_s)  # always running: detectors also run after procurement sync events
+    from backend.runtime import retention
+
+    retention.start(e)  # files older than BACKEND_FILE_TTL_HOURS (48) are deleted
     if os.environ.get("BACKEND_POLICY_STARTUP", "1") == "1" and e.policies:
         threading.Thread(target=_policy_startup, args=(e,), daemon=True, name="policy-startup").start()
     return e
@@ -128,6 +131,7 @@ def _scoped(req: "AskRequest", ctx: AccessContext) -> AccessContext:
 def _conversation(req: AskRequest, ctx: AccessContext) -> Dict[str, Any]:
     """Resolve the conversation for a question: its id, its workspace (recreated from its files after a restart) and history."""
     from backend.runtime.conversations import ConversationNotFound
+    from backend.tools.files import FileAccessDenied
 
     e = engine()
     store = e.conversations
@@ -143,7 +147,13 @@ def _conversation(req: AskRequest, ctx: AccessContext) -> Dict[str, Any]:
         except AccessDenied:
             if req.workspace_id or not (conv or {}).get("file_ids"):
                 raise HTTPException(404, f"unknown workspace {ws_id}")
-            info = e.workspaces.create(ctx, conv["file_ids"])  # workspaces live in memory; files persist
+            try:
+                info = e.workspaces.create(ctx, conv["file_ids"])  # workspaces live in memory; files are kept for the TTL
+            except FileAccessDenied:
+                from backend.runtime.retention import TTL_HOURS
+
+                raise HTTPException(410, f"The files in this conversation were removed after {TTL_HOURS:g} hours to save space. "
+                                         "Attach them again to continue.")
         ws_id = info["workspace_id"]
         if ws_id != (conv or {}).get("workspace_id"):
             store.set_workspace(cid, ws_id, info["files"])
