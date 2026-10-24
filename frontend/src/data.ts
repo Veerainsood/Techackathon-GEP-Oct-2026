@@ -47,6 +47,7 @@ export interface Source {
   freshness: string
   stale?: boolean
   color: string
+  kind?: string
 }
 
 export const formatL = (lakhs: number) => {

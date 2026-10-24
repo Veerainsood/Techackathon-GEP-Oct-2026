@@ -482,7 +482,9 @@ def runtime_sources(ctx: AccessContext = Depends(access)) -> List[Dict[str, Any]
         cur = e.contexts.current(ctx.tenant_id, s.source_id) if e.contexts else None
         v = versions.get(s.source_id, {})
         prov = adapter.provenance()
-        out.append({"source_id": s.source_id, "name": s.name, "description": s.description, "type": s.source_type.value, "mode": prov.get("mode"),
+        system = s.connection_metadata.get("system") or {"postgresql": "postgres"}.get(s.source_type.value, s.source_type.value)
+        out.append({"source_id": s.source_id, "name": s.name, "description": s.description, "type": s.source_type.value, "system": system,
+                    "mode": prov.get("mode"),
                     "snapshot_synced_at": prov.get("synced_at"), "collections": len(e.gateway.collections(ctx, s.source_id)),
                     "data_version": v.get("data_version"), "sequence": v.get("sequence"), "sync_status": v.get("sync_status", "no events yet"),
                     "last_sync_at": v.get("last_sync_at"), "last_window_end": v.get("last_window_end"), "last_error": v.get("last_error"),

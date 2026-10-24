@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import threading
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -196,11 +197,13 @@ def build_engine(settings: Optional[Settings] = None, register_defaults: bool = 
                                                exclude_schemas=["public", "hubspot"]), tenants=settings.tenants)
         # HubSpot CRM data written by knowledge-ingestion. Its sync events use source_id "hubspot" (BACKEND_SOURCE_ID)
         # and name exactly these collections: contacts in their own schema, companies in prospect_accounts.
-        gateway.register(PostgresSourceAdapter("hubspot", pg_uri(settings.data_db), name="HubSpot CRM",
-                                               description="Contacts and companies synced from HubSpot by knowledge-ingestion",
-                                               include_schemas=["hubspot"],
-                                               include_collections=["pipeline_crm.prospect_accounts"]), tenants=settings.tenants)
-        if Path(settings.uploads_dir).exists() and any(Path(settings.uploads_dir).iterdir()):
+        crm = PostgresSourceAdapter("hubspot", pg_uri(settings.data_db), name="HubSpot CRM",
+                                    description="Contacts and companies synced from HubSpot by knowledge-ingestion",
+                                    include_schemas=["hubspot"], include_collections=["pipeline_crm.prospect_accounts"])
+        crm.descriptor.connection_metadata["system"] = "hubspot"  # shown as the CRM, not as the database that stores it
+        gateway.register(crm, tenants=settings.tenants)
+        # A shared folder of files as a source is opt-in: files people attach live in their conversation's workspace.
+        if os.environ.get("BACKEND_SHARED_UPLOADS") == "1" and Path(settings.uploads_dir).exists() and any(Path(settings.uploads_dir).iterdir()):
             gateway.register(FileSourceAdapter("uploads", [settings.uploads_dir], name="Uploaded files",
                                                description="User-uploaded CSV / Excel / JSON / Parquet files"),
                              tenants=settings.tenants)
@@ -251,11 +254,5 @@ def build_engine(settings: Optional[Settings] = None, register_defaults: bool = 
     from backend.policies.engine import PolicyEngine
     engine.policies = PolicyEngine(engine, knowledge_uri)
     engine.autopilot = Autopilot(engine, knowledge_uri)
-    if register_defaults:
-        # Detected leakage cases, readable by the agents like any other data (read-only, one table).
-        gateway.register(PostgresSourceAdapter("leakage", knowledge_uri, name="Leakage cases",
-                                               description="Spend leakage cases found by the detectors, with recoverable value, "
-                                                           "confidence, root cause and recovery status",
-                                               include_collections=["backend_runtime.leakage_cases"]), tenants=settings.tenants)
     engine.workflow = DualPathWorkflow(engine)
     return engine

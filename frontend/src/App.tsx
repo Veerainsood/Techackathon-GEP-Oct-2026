@@ -334,6 +334,17 @@ export default function App() {
   const verifiedAnswers = live.answers.filter((a) => !a.stale).length
   const staleAnswers = live.answers.filter((a) => a.stale).length
 
+  const togglePause = () => {
+    const next = !paused
+    setPaused(next)
+    setToast(next ? 'Emergency stop: autonomous execution paused' : 'Autopilot resumed')
+    if (LIVE)
+      api.setAutopilotPaused(next).catch((err) => {
+        setPaused(!next)
+        setToast(`Could not ${next ? 'pause' : 'resume'} autopilot: ${err instanceof Error ? err.message : String(err)}`)
+      })
+  }
+
   return (
     <div className="flex h-full">
       <Sidebar
@@ -342,16 +353,6 @@ export default function App() {
         onNew={LIVE ? newConversation : () => setView('home')}
         pendingCount={pendingCount}
         paused={paused}
-        onTogglePause={() => {
-          const next = !paused
-          setPaused(next)
-          setToast(next ? 'Emergency stop: autonomous execution paused' : 'Agent resumed')
-          if (LIVE)
-            api.setAutopilotPaused(next).catch((err) => {
-              setPaused(!next)
-              setToast(`Could not ${next ? 'pause' : 'resume'} autopilot: ${err instanceof Error ? err.message : String(err)}`)
-            })
-        }}
         hasThread={!!query}
         recent={LIVE ? conversations.map((c) => c.title) : undefined}
         onRecent={LIVE ? (_title, index) => openConversation(index) : undefined}
@@ -455,7 +456,7 @@ export default function App() {
             }
           />
         )}
-        {view === 'settings' && <SettingsPage />}
+        {view === 'settings' && <SettingsPage paused={paused} onTogglePause={togglePause} />}
         {view === 'sources' && <SourcesPage items={LIVE ? liveSources : undefined} />}
       </main>
 
