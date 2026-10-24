@@ -146,6 +146,7 @@ export default function App() {
         answer: reply?.content ?? '',
         data: (meta.data as Turn['data']) ?? [],
         detail: (meta.detail as Turn['detail']) ?? null,
+        charts: meta.charts as Turn['charts'],
         verified: route === 'investigate' ? meta.verification_status === 'verified_fact' : undefined,
         totalMs: route === 'investigate' ? (meta.total_ms as number | undefined) : undefined,
         route,

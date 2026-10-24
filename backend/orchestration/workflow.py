@@ -60,6 +60,7 @@ class BackendState(TypedDict, total=False):
     answer_id: str
     artifacts: List[Dict[str, Any]]
     detail: Dict[str, Any]
+    charts: List[Dict[str, Any]]
     trace: Annotated[List[Dict[str, Any]], operator.add]
 
 
@@ -219,7 +220,9 @@ class DualPathWorkflow:
                                         final_answer="\n".join(lines), final_structured_data=rows_out, winning_query="",
                                         winning_source_id=source, verification_status=VerificationStatus.VERIFIED_FACT,
                                         confidence_score=0.9 if cases else 0.8, unresolved_assumptions=list(report.get("warnings", [])))
-        return {"decision": decision.model_dump(mode="json"),
+        from backend.orchestration.charts import leakage_charts
+
+        return {"decision": decision.model_dump(mode="json"), "charts": leakage_charts(cases, TYPE_LABEL),
                 "trace": _t("leakage_scan", t0, cases=len(cases), recoverable_usd=total, scope=source)}
 
     def respond(self, state: BackendState) -> Dict[str, Any]:
@@ -486,6 +489,11 @@ class DualPathWorkflow:
         from backend.runtime.versions import check_consistency
 
         detail = None if direct else self._detail(ctx, d)
+        charts = state.get("charts")
+        if charts is None and not direct and d.get("selected_path") != "Abstained_With_Uncertainty":
+            from backend.orchestration.charts import plan_charts
+
+            charts = plan_charts(state["question"], d.get("final_structured_data") or [], llm=getattr(self.e.intent, "llm", None))
         consistency = check_consistency(self.e, ctx, state.get("manifest") or {})
         leases = self._leases.pop(state["request_id"], None)
         if leases:
@@ -517,6 +525,8 @@ class DualPathWorkflow:
                "trace": _t("finalize", t0, persisted=persisted, consistency=consistency["status"], artifacts=len(artifacts))}
         if detail:
             out["detail"] = detail
+        if charts is not None:
+            out["charts"] = charts
         if answer_id:
             out["answer_id"] = answer_id
         if consistency["warnings"]:

@@ -8,6 +8,7 @@ import { Callout, SourceCard } from '../components/Thread'
 import { SectionLabel, SourceDot, Spinner, StatusPill } from '../components/ui'
 import type { Source } from '../data'
 import { manifestSource } from './adapter'
+import { Charts, type ChartSpec } from './Charts'
 import { Markdown } from './Markdown'
 import { PrepCard, type PrepState } from './PrepCard'
 import { api, type AskRequest, type ModelConfig, type PrepFix, type PrepJob, type RuntimeSource, type StreamEvent } from './api'
@@ -31,6 +32,7 @@ interface Result {
   errors: Record<string, string>
   total_ms: number
   detail?: Detail | null
+  charts?: ChartSpec[] | null
   intent?: {
     route?: 'answer' | 'clarify' | 'investigate' | 'leakage'
     options?: string[]
@@ -44,6 +46,7 @@ export interface Turn {
   answer: string
   data?: Row[]
   detail?: Detail | null
+  charts?: ChartSpec[] | null // planned by the backend; absent on answers saved before chart plans existed
   verified?: boolean
   totalMs?: number
   route?: string
@@ -200,7 +203,7 @@ function AnswerBlock({ turn }: { turn: Turn }) {
           {turn.totalMs !== undefined && <span className="text-muted">· {secs(turn.totalMs)}</span>}
         </div>
       ) : null}
-      {grouped && <ResultChart rows={rows} />}
+      {Array.isArray(turn.charts) ? <Charts charts={turn.charts} /> : grouped && <ResultChart rows={rows} />}
       {grouped && <DataTable columns={Object.keys(rows[0])} rows={rows} />}
       {detail && (
         <div>
@@ -266,6 +269,7 @@ export function LiveThread({
               answer: r.answer,
               data: Array.isArray(r.data) ? r.data : [],
               detail: r.detail ?? null,
+              charts: r.charts,
               verified: r.verification_status === 'verified_fact',
               totalMs: r.total_ms,
               route: r.intent?.route,
@@ -369,6 +373,7 @@ export function LiveThread({
         answer: result.answer,
         data: Array.isArray(result.data) ? result.data : [],
         detail: result.detail ?? null,
+        charts: result.charts,
         verified: direct ? undefined : result.verification_status === 'verified_fact',
         totalMs: direct ? undefined : result.total_ms,
         route: result.intent?.route,
