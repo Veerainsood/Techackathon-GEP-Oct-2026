@@ -168,7 +168,11 @@ def breakdown_chart(gateway: Any, ctx: Any, decision: Dict[str, Any], question: 
         series = [s for s in series if unit_of(s, question) == unit][:3]
         kind = kind if kind in ("line", "bar", "donut") else "bar"
         label = x.replace("_start", "").replace("_", " ")
-        plan = ChartPlan(type=kind, x=x, series=series, unit=unit, title=title or _title(series[:1], label, question))
+        line = kind == "line"
+        plan = ChartPlan(type=kind, x=x, series=series, unit=unit, title=title or _title(series[:1], label, question),
+                         references=["average", "peak"] if line else [],
+                         takeaway=("Peak {peak} in {peak_label}; {latest} in {latest_label}" if line
+                                   else "{top_label} leads with {top}, {top_share} of the total"))
         if check(plan, out):
             continue
         chart = materialize(plan, out, question)
