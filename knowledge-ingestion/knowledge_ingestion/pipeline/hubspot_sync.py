@@ -27,6 +27,7 @@ from knowledge_ingestion.publish.backend_events import (
     build_success_events,
     deliver_pending,
 )
+from knowledge_ingestion.publish import backend_prep
 from knowledge_ingestion.storage.base import KnowledgeStore, OutboxEvent, RecordBatch
 from knowledge_ingestion.storage.factory import get_store
 from knowledge_ingestion.storage.warehouse import get_warehouse
@@ -161,14 +162,26 @@ def _poll_once(store: KnowledgeStore) -> SyncResult:
         for object_type, items in records.items()
     }
     extracted = sum(len(items) for items in records.values())
+    released_jobs: list[str] = []
     try:
+        # The backend's data-prep agent checks every batch before it reaches the warehouse. The raw snapshot below
+        # still stores what HubSpot sent.
+        to_load: dict[str, list[HubSpotRecord]] = {}
+        held: set[str] = set()
+        for object_type, items in records.items():
+            to_load[object_type], held_now = backend_prep.check_batch(object_type, items)
+            held |= held_now
+        for job in backend_prep.released():  # held earlier, now decided
+            to_load.setdefault(job.object_type, []).extend(job.records)
+            changes.extend((job.object_type, "update", r.id) for r in job.records)
+            released_jobs.append(job.job_id)
         # Warehouse first, then our raw snapshot. Both are upserts or appends, so a retry is safe.
-        account_changes = get_warehouse().load(batch_id, records, started_at)
+        account_changes = get_warehouse().load(batch_id, to_load, started_at)
         outbox: list[OutboxEvent] = []
         if config.backend.enabled:
             # Contacts are keyed by their HubSpot id. Companies are reported as the warehouse accounts the load
             # created or changed (linked companies keep their existing CRM account id, not the HubSpot id).
-            event_changes = [change for change in changes if change[0] == "contacts"] + [
+            event_changes = [change for change in changes if change[0] == "contacts" and change[2] not in held] + [
                 ("companies", op, account_id) for account_id, op in sorted(account_changes.items())
             ]
             outbox = build_success_events(run_id, window_start, started_at, event_changes, datetime.now(timezone.utc))
@@ -179,6 +192,11 @@ def _poll_once(store: KnowledgeStore) -> SyncResult:
         _log_batch(batch_id, started_at, "FAILED", extracted, 0, message)
         raise
 
+    for job_id in released_jobs:
+        try:
+            backend_prep.ack(job_id)
+        except Exception:
+            logger.exception("Could not acknowledge released batch %s; it will be loaded again (loads are upserts)", job_id)
     finished_at = datetime.now(timezone.utc)
     _log_batch(batch_id, started_at, "SUCCEEDED", extracted, extracted, None, finished_at)
     return SyncResult(

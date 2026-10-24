@@ -13,6 +13,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import shlex
 import shutil
 import subprocess
 import sys
@@ -83,6 +84,18 @@ class LocalProcessSandbox(Sandbox):
         except subprocess.TimeoutExpired:
             return {"exit_code": -1, "stdout": "", "stderr": f"timed out after {timeout_s}s"}
 
+    def run_script(self, rel_path: str, args: List[str], timeout_s: int = 120) -> Dict[str, Any]:
+        env = {k: v for k, v in os.environ.items() if not any(s in k.upper() for s in ("KEY", "SECRET", "TOKEN", "PASSWORD", "URI"))}
+        try:
+            p = subprocess.run([sys.executable, str(self.root / rel_path), *args], cwd=self.root, capture_output=True, text=True,
+                               timeout=timeout_s, env=env)
+            return {"exit_code": p.returncode, "stdout": p.stdout[-20000:], "stderr": p.stderr[-8000:]}
+        except subprocess.TimeoutExpired:
+            return {"exit_code": -1, "stdout": "", "stderr": f"timed out after {timeout_s}s"}
+
+    def path(self, rel_path: str) -> str:
+        return str(self.root / rel_path)
+
     def list_outputs(self) -> List[str]:
         return [str(p) for p in (self.root / "out").rglob("*") if p.is_file()]
 
@@ -96,22 +109,25 @@ class LocalProcessSandbox(Sandbox):
         shutil.rmtree(self.root, ignore_errors=True)
 
 
+def daytona_client() -> Any:
+    try:
+        from daytona import Daytona, DaytonaConfig
+    except ImportError as exc:
+        raise SandboxError("daytona SDK not installed (pip install daytona)") from exc
+    key = os.environ.get("DAYTONA_API_KEY")
+    if not key:
+        raise SandboxError("DAYTONA_API_KEY is not set")
+    return Daytona(DaytonaConfig(api_key=key, api_url=os.environ.get("DAYTONA_API_URL") or None,
+                                 target=os.environ.get("DAYTONA_TARGET") or None))
+
+
 class DaytonaSandbox(Sandbox):
     """Daytona-backed sandbox (SDK: Daytona.create / sandbox.fs / sandbox.process / Daytona.delete)."""
 
     provider = "daytona"
 
     def __init__(self, label: str, client: Any = None):
-        if client is None:
-            try:
-                from daytona import Daytona, DaytonaConfig
-            except ImportError as exc:
-                raise SandboxError("daytona SDK not installed (pip install daytona)") from exc
-            key = os.environ.get("DAYTONA_API_KEY")
-            if not key:
-                raise SandboxError("DAYTONA_API_KEY is not set")
-            client = Daytona(DaytonaConfig(api_key=key, api_url=os.environ.get("DAYTONA_API_URL") or None,
-                                           target=os.environ.get("DAYTONA_TARGET") or None))
+        client = client or daytona_client()
         self.client = client
         try:
             self.sb = client.create(timeout=float(os.environ.get("DAYTONA_CREATE_TIMEOUT_S", "120")))
@@ -123,11 +139,18 @@ class DaytonaSandbox(Sandbox):
             self.workdir = "/home/daytona"
         self._exec(f"mkdir -p {self.workdir}/data {self.workdir}/out")
 
-    def _exec(self, cmd: str, timeout: int = 60) -> Any:
+    def _exec(self, cmd: str, timeout: int = 60, cwd: Optional[str] = None) -> Any:
         try:
-            return self.sb.process.exec(cmd, cwd=self.workdir, timeout=timeout)
+            return self.sb.process.exec(cmd, cwd=cwd or self.workdir, timeout=timeout)
         except Exception as exc:
             raise SandboxError(f"Daytona exec failed: {type(exc).__name__}: {exc}") from exc
+
+    def run_script(self, rel_path: str, args: List[str], timeout_s: int = 120) -> Dict[str, Any]:
+        res = self._exec(f"python3 {shlex.quote(self.path(rel_path))} {' '.join(shlex.quote(a) for a in args)}", timeout=timeout_s)
+        return {"exit_code": getattr(res, "exit_code", -1), "stdout": (getattr(res, "result", "") or "")[-20000:], "stderr": ""}
+
+    def path(self, rel_path: str) -> str:
+        return f"{self.workdir}/{rel_path}"
 
     def upload(self, rel_path: str, data: bytes) -> str:
         dst = f"{self.workdir}/{rel_path}"
@@ -167,6 +190,33 @@ class DaytonaSandbox(Sandbox):
         try:
             self.client.delete(self.sb)
         except Exception:
+            pass
+
+
+class PersistentDaytonaSandbox(DaytonaSandbox):
+    """A long-lived named Daytona sandbox (e.g. FinSight). Started on demand; each job gets its own directory, removed on
+    close. The shared sandbox itself is never deleted."""
+
+    def __init__(self, job_id: str, name: str, client: Any = None):
+        self.client = client or daytona_client()
+        try:
+            self.sb = self.client.get(name)
+            if not str(getattr(self.sb, "state", "")).lower().endswith("started"):
+                self.client.start(self.sb, timeout=float(os.environ.get("DAYTONA_START_TIMEOUT_S", "90")))
+        except Exception as exc:
+            raise SandboxError(f"Daytona sandbox {name!r} unavailable: {type(exc).__name__}: {exc}") from exc
+        try:
+            base = self.sb.get_work_dir()
+        except Exception:
+            base = "/home/daytona"
+        self.base = base
+        self.workdir = f"{base}/jobs/{job_id}"
+        self._exec(f"mkdir -p {shlex.quote(self.workdir)}/data {shlex.quote(self.workdir)}/out", cwd=base)
+
+    def close(self) -> None:
+        try:
+            self._exec(f"rm -rf {shlex.quote(self.workdir)}", cwd=self.base)
+        except SandboxError:
             pass
 
 

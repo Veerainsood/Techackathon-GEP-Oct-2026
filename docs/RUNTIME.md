@@ -76,6 +76,23 @@ When unsure, it chooses `investigate`. Without an LLM it uses deterministic rule
 
 Verified live: "what can you do?" was answered in 7 s and "What was our revenue last year?" got a clarifying question in 6 s. "Is Contoso Logistics a customer, which region?" was answered in 12 s with one lookup, labelled not dual-verified. "How many OVERDUE invoices?" went to both agents and came back 13, verified, in 46 s.
 
+## Data preparation (the only agent with a sandbox)
+
+Every uploaded file and every HubSpot batch is checked by the data-prep agent (Claude Opus 4.6, model role `prep`) in the Daytona sandbox **FinSight** before anyone uses it (`backend/prep/`). Explorer and Hercules have no Python tool.
+
+1. **Profile:** the file is uploaded to a per-job folder in the sandbox and checked against its hash. A profiling script (pandas) measures, per column, missing values, stray spaces, number and date parse rates, ambiguous day/month dates, case variants, outliers, repeated ids, and identical rows.
+2. **Plan:** the agent may investigate with Python in the sandbox, then submits findings and fixes built from a fixed set of operations: trim, standardize case, convert to numbers or dates, map values, fill missing values (median, mean, mode, constant, forward-fill), flag duplicates, drop identical rows, drop rows missing values.
+3. **Apply:** code, not the model, decides what is safe. Trimming, case, flags, and lossless number/date conversions (every value parses, no day/month ambiguity) are applied in the sandbox, and the cleaned file is downloaded as a **new version**; the original is never modified. Everything that fills, maps or drops values goes to the **Approvals** screen.
+4. **Decide:** when every pending fix of a job is decided, the approved ones are applied in the sandbox to a further version. Conversations using the file switch to it, and their workspace is rebuilt on the next question.
+
+Duplicates are never removed automatically. Repeated rows can be real, for example a subscription billed twice, so they are flagged in the file (`_duplicate_group`, `_duplicate_count`) and explained in a finding; removal is only ever proposed.
+
+**HubSpot:** knowledge-ingestion sends each batch to `POST /prep/batches` before loading it, signed with the event secret. Records that only needed safe fixes are returned cleaned and loaded. Records touched by a fix awaiting approval are held by the backend; once decided they are returned by `POST /prep/batches/released`, loaded on the next poll and acknowledged. If the check fails, the run fails and the same records are checked again on the next poll.
+
+Endpoints: `POST /prep/files`, `GET /prep/jobs`, `GET /prep/jobs/{id}`; approval decisions on data-prep fixes go through the usual `POST /approvals/{id}/decision`. Settings: `DAYTONA_API_KEY`, `DAYTONA_API_URL`, `DAYTONA_TARGET`, `DAYTONA_SANDBOX` (default `FinSight`), and `BACKEND_PREP_SANDBOX=daytona|local`. `local` runs the same scripts in a local process: tests only, not isolation.
+
+Verified live: Opus 4.6 in FinSight took 58 s on a messy subscriptions file. It trimmed vendors, standardized mixed date formats and region case, and converted amounts. It did not invent two missing amounts, and flagged a double-billed subscription as critical, proposing its removal only for approval.
+
 ## Conversations
 
 Every question belongs to a conversation, stored in PostgreSQL (`backend_runtime.conversations` and `backend_runtime.messages`; code in `backend/runtime/conversations.py`).

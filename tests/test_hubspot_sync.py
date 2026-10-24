@@ -128,11 +128,15 @@ def test_sync_event_names_crm_account_ids_and_matches_the_backend_contract(lab):
         def search_modified_since(self, object_type, properties, modified_property, since_ms):
             return records[object_type]
 
+    from knowledge_ingestion.publish import backend_prep
+
     cfg = replace(config, backend=BackendConfig(events_url="http://127.0.0.1:9", secret="s", tenant_id="default",
                                           source_id="hubspot", database_id=None))
     with mock.patch.object(hubspot_sync, "config", cfg), mock.patch.object(backend_events, "config", cfg), \
             mock.patch.object(hubspot_sync, "HubSpotClient", FakeClient), \
-            mock.patch.object(hubspot_sync, "get_warehouse", lambda: lab["w"]):
+            mock.patch.object(hubspot_sync, "get_warehouse", lambda: lab["w"]), \
+            mock.patch.object(backend_prep, "check_batch", lambda object_type, items: (items, set())), \
+            mock.patch.object(backend_prep, "released", lambda: []):
         hubspot_sync.sync_hubspot(store)
     events = [SyncEvent.model_validate(json.loads(e["body"])) for e in store.pending_outbox("hubspot", 10)]
     assert len(events) == 1
@@ -140,3 +144,68 @@ def test_sync_event_names_crm_account_ids_and_matches_the_backend_contract(lab):
     fabrikam = q(lab, "SELECT crm_account_id FROM pipeline_crm.prospect_accounts WHERE crm_account_name = 'Fabrikam Retail'")[0][0]
     assert sorted(by_name["hubspot.contacts"]) == ["f9", "n1", "w1"]
     assert by_name["pipeline_crm.prospect_accounts"] == [fabrikam]  # Fabrikam became a customer; the others already were
+
+
+def test_batches_are_checked_before_loading_and_held_records_wait_for_approval(lab):
+    """The ingestion pipeline sends each batch to the backend's data-prep agent (signed, in-process here). Records needing a
+    decision are not loaded until every fix is decided; then they are released, loaded on the next poll and acknowledged."""
+    from fastapi.testclient import TestClient
+
+    from backend.api import app as api
+    from backend.engine import build_engine
+    from backend.events.contracts import sign
+    from knowledge_ingestion.config import BackendConfig, config
+    from knowledge_ingestion.pipeline import hubspot_sync
+    from knowledge_ingestion.publish import backend_events, backend_prep
+    from knowledge_ingestion.storage import sql_store
+
+    e = build_engine(llm_providers=(None,) * 5)
+    e.consumer.secret = "s"
+    original = api.engine
+    api.engine = lambda: e
+    client = TestClient(api.app)
+
+    def post(path, payload):
+        body = json.dumps(payload, default=str).encode()
+        r = client.post(path, content=body, headers={"X-Backend-Signature": sign(body, "s")})
+        r.raise_for_status()
+        return r.json()
+
+    store = sql_store.SqlStore(f"sqlite:///{lab['tmp'] / 'held.db'}")
+    sql_store.metadata.create_all(store._engine)
+    complete, other, gap = (contact("h1", "Northwind Traders", "customer"), contact("h3", "Northwind Traders", "lead"),
+                            contact("h2", "Northwind Traders", "customer"))
+    for i, c in enumerate((complete, other, gap)):
+        c.properties.update(jobtitle=["CFO", "Controller", None][i], phone=f"+1 555 010{i}")
+    # one of three job titles is missing: the rules propose filling it, which needs approval, so h2 is held
+    feed = {"contacts": [complete, other, gap], "companies": []}
+
+    class FakeClient:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return None
+
+        def search_modified_since(self, object_type, properties, modified_property, since_ms):
+            return feed[object_type]
+
+    cfg = replace(config, backend=BackendConfig(events_url="http://in-process", secret="s", tenant_id="t_prep_batch",
+                                                source_id="hubspot", database_id=None))
+    try:
+        with mock.patch.object(hubspot_sync, "config", cfg), mock.patch.object(backend_events, "config", cfg), \
+                mock.patch.object(backend_prep, "config", cfg), mock.patch.object(backend_prep, "_post", post), \
+                mock.patch.object(hubspot_sync, "HubSpotClient", FakeClient), \
+                mock.patch.object(hubspot_sync, "get_warehouse", lambda: lab["w"]):
+            hubspot_sync.sync_hubspot(store)
+            loaded = {r[0] for r in q(lab, "SELECT contact_id FROM hubspot.contacts WHERE contact_id IN ('h1','h2','h3')")}
+            assert loaded == {"h1", "h3"}  # h2 is held for a decision
+            for a in [a for a in e.governance.list_approvals("t_prep_batch", "pending") if a["payload"].get("kind") == "prep_fix"]:
+                e.prep.decided("t_prep_batch", e.governance.decide("t_prep_batch", a["approval_id"], False, "reviewer", None))
+            feed["contacts"] = []  # nothing new from HubSpot; the released record comes from the backend
+            hubspot_sync.sync_hubspot(store)
+        assert {r[0] for r in q(lab, "SELECT contact_id FROM hubspot.contacts WHERE contact_id IN ('h1','h2')")} == {"h1", "h2"}
+        assert q(lab, "SELECT jobtitle FROM hubspot.contacts WHERE contact_id = 'h2'") == [(None,)]  # fill rejected: unchanged
+        assert e.prep.released_batches("t_prep_batch", "hubspot") == []  # acknowledged
+    finally:
+        api.engine = original

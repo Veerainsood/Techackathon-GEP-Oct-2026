@@ -576,8 +576,89 @@ def create_approval(body: ApprovalCreate, ctx: AccessContext = Depends(access)) 
 def decide_approval(approval_id: str, body: ApprovalDecision, ctx: AccessContext = Depends(access)) -> Dict[str, Any]:
     from backend.governance.store import ApprovalConflict
     try:
-        return engine().governance.decide(ctx.tenant_id, approval_id, body.approved, ctx.user_id, body.note)
+        row = engine().governance.decide(ctx.tenant_id, approval_id, body.approved, ctx.user_id, body.note)
     except KeyError:
         raise HTTPException(404, f"unknown approval {approval_id}")
     except ApprovalConflict as exc:
         raise HTTPException(409, str(exc))
+    if engine().prep and (row.get("payload") or {}).get("kind") == "prep_fix":
+        try:
+            engine().prep.decided(ctx.tenant_id, row)  # applies the approved fixes once every fix of the job is decided
+        except Exception as exc:
+            raise HTTPException(502, f"decision recorded, but applying the fix failed: {type(exc).__name__}: {exc}")
+    return row
+
+
+# ============================================================================ data preparation (sandbox)
+class PrepFilesRequest(BaseModel):
+    file_ids: List[str] = Field(min_length=1, max_length=20)
+
+
+@app.post("/prep/files")
+def prep_files(body: PrepFilesRequest, ctx: AccessContext = Depends(access)) -> List[Dict[str, Any]]:
+    """Check uploaded files in the sandbox before use: safe fixes are applied to a new version; others go to Approvals."""
+    from backend.tools.files import FileAccessDenied
+
+    jobs = []
+    for fid in body.file_ids:
+        try:
+            jobs.append(engine().prep.check_file(ctx.tenant_id, ctx.user_id, fid))
+        except FileAccessDenied:
+            raise HTTPException(404, f"unknown file {fid}")
+        except Exception as exc:
+            raise HTTPException(502, f"checking the file failed: {type(exc).__name__}: {str(exc)[:300]}")
+    return jobs
+
+
+async def _signed_body(request: Request) -> Dict[str, Any]:
+    """Service-to-service calls from knowledge-ingestion: HMAC-SHA256 of the raw body with the shared event secret."""
+    import json as _json
+
+    from backend.events.contracts import verify_signature
+
+    body = await request.body()
+    c = engine().consumer
+    if not verify_signature(body, request.headers.get("X-Backend-Signature"), c.secret) and not c.allow_unsigned:
+        raise HTTPException(401, "invalid or missing signature")
+    try:
+        return _json.loads(body)
+    except ValueError:
+        raise HTTPException(400, "body must be JSON")
+
+
+@app.post("/prep/batches")
+async def prep_batch(request: Request) -> Dict[str, Any]:
+    """Check a CRM batch before it is loaded: {tenant_id, source, object_type, records: [{id, properties}]}."""
+    b = await _signed_body(request)
+    try:
+        return engine().prep.check_records(b.get("tenant_id") or "default", b["source"], b["object_type"], b["records"])
+    except KeyError as exc:
+        raise HTTPException(400, f"missing field {exc}")
+
+
+@app.post("/prep/batches/released")
+async def prep_released(request: Request) -> List[Dict[str, Any]]:
+    """Held records whose fixes have all been decided, ready to load: {tenant_id, source}."""
+    b = await _signed_body(request)
+    return engine().prep.released_batches(b.get("tenant_id") or "default", b.get("source") or "hubspot")
+
+
+@app.post("/prep/batches/ack")
+async def prep_ack(request: Request) -> Dict[str, Any]:
+    """The producer loaded a released batch: {tenant_id, job_id}."""
+    b = await _signed_body(request)
+    engine().prep.acknowledge(b.get("tenant_id") or "default", b["job_id"])
+    return {"acknowledged": b["job_id"]}
+
+
+@app.get("/prep/jobs")
+def prep_jobs(ctx: AccessContext = Depends(access)) -> List[Dict[str, Any]]:
+    return [engine().prep.job(j["job_id"]) for j in engine().prep.store.list(ctx.tenant_id, ctx.user_id)]
+
+
+@app.get("/prep/jobs/{job_id}")
+def prep_job(job_id: str, ctx: AccessContext = Depends(access)) -> Dict[str, Any]:
+    j = engine().prep.store.get(job_id, ctx.tenant_id)
+    if not j or j["owner"] != ctx.user_id:
+        raise HTTPException(404, f"unknown job {job_id}")
+    return engine().prep.job(job_id)

@@ -5,6 +5,7 @@ from pathlib import Path
 # Unit tests never call external LLMs or sandboxes; live smoke tests opt in explicitly (BACKEND_LIVE_SMOKE=1).
 os.environ.setdefault("BACKEND_REASONING_MODE", "offline")
 os.environ.setdefault("BACKEND_SANDBOX", "off")
+os.environ.setdefault("BACKEND_PREP_SANDBOX", "local")  # the shared Daytona sandbox is only used by opt-in live tests
 
 import psycopg2
 import pytest

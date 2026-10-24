@@ -168,10 +168,17 @@ export default function App() {
     try {
       setToast(`Uploading ${files.map((f) => f.name).join(', ')}…`)
       const stored = await api.upload(files)
-      const ws = await api.createWorkspace(stored.map((f) => f.file_id))
+      setToast('Checking data quality in the sandbox…')
+      const jobs = await api.prepFiles(stored.map((f) => f.file_id))
+      const ws = await api.createWorkspace(jobs.map((j) => j.checked_file_id ?? j.input_file_id))
       setWorkspace(ws.workspace_id)
       setAttachments(ws.files.map((f) => f.filename))
-      setToast(`${files.length} file${files.length > 1 ? 's' : ''} attached`)
+      const applied = jobs.reduce((n, j) => n + j.applied, 0)
+      const pending = jobs.reduce((n, j) => n + j.pending, 0)
+      setToast(
+        `${files.length} file${files.length > 1 ? 's' : ''} checked · ${applied} fix${applied === 1 ? '' : 'es'} applied` +
+          (pending ? ` · ${pending} waiting in Approvals` : ''),
+      )
     } catch (err) {
       setToast(`Upload failed: ${err instanceof Error ? err.message : String(err)}`)
     }

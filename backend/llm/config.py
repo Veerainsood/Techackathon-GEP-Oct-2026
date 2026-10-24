@@ -30,7 +30,7 @@ def _load_dotenv() -> None:
             continue
         key, _, value = line.partition("=")
         key = key.strip()
-        if key.startswith("BACKEND_") and key not in os.environ:
+        if key.startswith(("BACKEND_", "DAYTONA_")) and key not in os.environ:
             os.environ[key] = value.strip().strip('"').strip("'")
 
 
@@ -39,7 +39,8 @@ def _load_dotenv() -> None:
 # extraction) use the OpenAI model; "light" is for cheap understanding/summarisation tasks.
 # Override with BACKEND_<ROLE>_LLM_MODEL, e.g. BACKEND_HERCULES_LLM_MODEL.
 FOUNDRY_DEFAULT_DEPLOYMENTS = {"explorer": "claude-opus-4-6", "hercules": "claude-opus-4-6", "adjudicator": "gpt-5.6-sol",
-                               "intent": "gpt-5.6-sol", "structured": "gpt-5.6-sol", "light": "claude-sonnet-5"}
+                               "intent": "gpt-5.6-sol", "prep": "claude-opus-4-6", "structured": "gpt-5.6-sol",
+                               "light": "claude-sonnet-5"}
 # A role without its own BACKEND_<ROLE>_LLM_* value inherits from this role before the global BACKEND_LLM_* value.
 ROLE_FALLBACK = {"adjudicator": "structured", "intent": "structured"}
 

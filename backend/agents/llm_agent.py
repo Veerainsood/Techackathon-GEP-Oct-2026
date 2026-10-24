@@ -99,8 +99,8 @@ TOOL_SPECS: Dict[str, ToolSpec] = {t.name: t for t in [
 
 
 def available_tools(session: ToolSession) -> List[str]:
-    sandbox = getattr(session.toolbox, "sandbox", None)
-    return [t for t in TOOL_SPECS if t != "run_python" or (sandbox is not None and sandbox.enabled)]
+    # Only the data-prep agent may use the sandbox; the investigating agents query data through the gateway.
+    return [t for t in TOOL_SPECS if t != "run_python"]
 SUBMIT = ToolSpec("submit_candidate", "Submit your final candidate answer (structured). Call exactly once when done.",
                   CandidateSubmission.model_json_schema())
 
