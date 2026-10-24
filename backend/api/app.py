@@ -572,9 +572,23 @@ class ApprovalDecision(BaseModel):
 
 @app.get("/guardrails")
 def guardrails(ctx: AccessContext = Depends(access)) -> List[Dict[str, Any]]:
-    store = engine().governance
-    store.ensure_guardrails(ctx.tenant_id)
-    return store.list_guardrails(ctx.tenant_id)
+    """One guardrail per action autopilot can take, shown only where an active policy covers its records (no policy: no
+    action, so nothing to decide), with the policies the action is checked against."""
+    from backend.policies.actions import ACTIONS
+    from backend.policies.engine import SCOPES
+
+    e = engine()
+    e.governance.ensure_guardrails(ctx.tenant_id)
+    policies = [p for p in (e.policies.list(ctx.tenant_id) if e.policies else []) if p["active"]]
+    by_rule = {a["guardrail"]: a for a in ACTIONS.values()}
+    out = []
+    for g in e.governance.list_guardrails(ctx.tenant_id):
+        action = by_rule[g["rule_id"]]
+        names = [p["name"] for p in policies if p["collection"] == action["collection"]]
+        if names:
+            out.append({**g, "action": action["label"], "agent": SCOPES[action["collection"]]["label"],
+                        "limit": "Checked against: " + "; ".join(names), "policies": names})
+    return out
 
 
 @app.put("/guardrails/{rule_id}")

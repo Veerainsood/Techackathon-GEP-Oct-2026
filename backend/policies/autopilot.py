@@ -23,6 +23,7 @@ from psycopg2.extras import Json
 
 from backend.gateway.registry import AccessContext
 from backend.pg_pool import shared_pool
+from backend.policies.actions import ACTIONS
 from backend.policies.engine import REGIONS, explain, fmt_value
 
 DDL = """
@@ -47,13 +48,6 @@ CREATE TABLE IF NOT EXISTS backend_runtime.autopilot_settings (
     tenant_id TEXT PRIMARY KEY, paused BOOLEAN NOT NULL DEFAULT FALSE, updated_at TIMESTAMPTZ NOT NULL DEFAULT now(), updated_by TEXT
 );
 """
-ACTIONS = {
-    "sign_contract": {"collection": "pending_contracts", "guardrail": "sign-contracts", "changes": {"execution_status": "Fully_Signed"},
-                      "title": "Mark contract {ref} signed", "approver": "Contract owner"},
-    "record_payment": {"collection": "pending_invoices", "guardrail": "record-invoice-payments",
-                       "changes": {"settlement_status": "PAID", "open_balance_usd": 0}, "title": "Record payment of overdue invoice {ref}",
-                       "approver": "AR manager"},
-}
 DONE = ("executed", "awaiting_approval")
 SAFE_ID = re.compile(r"^[A-Za-z0-9_.\-]+$")
 

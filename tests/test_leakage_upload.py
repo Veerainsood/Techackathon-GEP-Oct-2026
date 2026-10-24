@@ -75,11 +75,36 @@ def test_upload_check_and_ask_find_the_leaks(client, files):
     assert "likely leaks worth" in payload["answer"] and "gl_journal_extract" in payload["answer"]  # says what it did not use
 
 
-def test_approval_file_needs_a_person_and_decisions_complete_the_job(client, files):
+def test_approval_file_needs_a_person_and_decisions_complete_the_job(pg_uri, uploads_dir, files):
+    from fastapi.testclient import TestClient
+
+    from backend.api import app as api
+    from backend.engine import build_engine
+    from backend.llm.scripted import ScriptedProvider, tool
+
+    def policy(system, messages, tools):  # what the data-prep agent proposed for this file in the live run
+        return tool("submit_plan", summary="payments checked", fixes=[
+            {"op": "trim_whitespace", "columns": ["Vendor"], "rationale": "stray spaces"},
+            {"op": "parse_dates", "columns": ["Payment Date"], "rationale": "mixed formats"},
+            {"op": "cast_numeric", "columns": ["Amount USD"], "rationale": "numbers stored as text; TBC becomes blank"},
+            {"op": "drop_exact_duplicates", "rationale": "PMT-1005 entered twice"},
+            {"op": "drop_rows_missing", "columns": ["Payment ID"], "rationale": "rows without an id"}])
+
+    original = api.engine
+    eng = build_engine(llm_providers=(None, None, None, None, ScriptedProvider(policy)))
+    api.engine = lambda: eng
+    client = TestClient(api.app)
+    try:
+        _approval_file(client, files)
+    finally:
+        api.engine = original
+
+
+def _approval_file(client, files):
     csv = next(p for p in files["approval"] if p.suffix == ".csv")
     fid = client.post("/files", headers=H, files=[("files", (csv.name, io.BytesIO(csv.read_bytes()), "text/csv"))]).json()[0]["file_id"]
     job = client.post("/prep/files", headers=H, json={"file_ids": [fid]}).json()[0]
-    assert job["pending"] >= 1 and job["applied"] >= 1  # stray spaces fixed on their own; ambiguous dates wait for a person
+    assert job["pending"] == 2 and job["applied"] == 3  # data fixes applied on their own; only the two removals wait
     pending = [a for a in client.get("/approvals?status=pending", headers=H).json() if a["payload"].get("job_id") == job["job_id"]]
     assert pending and all(a["payload"]["kind"] == "prep_fix" for a in pending)
     for a in pending:

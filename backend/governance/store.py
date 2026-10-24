@@ -17,6 +17,7 @@ from typing import Any, Dict, List, Optional
 from psycopg2.extras import Json
 
 from backend.pg_pool import shared_pool
+from backend.policies.actions import ACTIONS
 
 MODES = ("auto", "approve", "never")
 APPROVAL_STATUSES = ("pending", "approved", "rejected")
@@ -49,23 +50,10 @@ CREATE TABLE IF NOT EXISTS backend_runtime.approvals (
 CREATE INDEX IF NOT EXISTS approvals_tenant_status_idx ON backend_runtime.approvals (tenant_id, status, requested_at);
 """
 
-# Default rules, in display order. Same rules and wording as the Settings screen's starting list.
+# One rule per action autopilot can actually take (backend/policies/actions.py), in display order.
 # (rule_id, action, agent, mode, limit, locked)
-DEFAULT_GUARDRAILS: List[tuple] = [
-    ("send-collection-reminders", "Send collection reminders", "Collections", "auto", "Approved templates only", False),
-    ("escalate-overdue-accounts", "Escalate overdue accounts", "Collections", "auto", "Any amount", False),
-    ("approve-purchase-requests", "Approve purchase requests", "Spend Control", "auto", "Up to ₹25K, within budget", False),
-    ("hold-over-budget-requests", "Hold over-budget requests", "Spend Control", "auto", "Any amount", False),
-    ("schedule-vendor-payments", "Schedule vendor payments", "Payments", "auto", "Up to ₹2L · above needs approval", False),
-    ("pay-early-for-discounts", "Pay early for discounts", "Payments", "approve", "If reserve stays ≥ ₹50L", False),
-    ("hold-suspicious-payments", "Hold suspicious payments", "Risk", "auto", "Release needs a human", False),
-    ("cancel-subscriptions", "Cancel subscriptions", "Spend Control", "approve", "Prepared, not executed", False),
-    ("renew-or-terminate-contracts", "Renew or terminate contracts", "Contracts", "approve", "Owner + legal", False),
-    ("sign-contracts", "Mark pending contracts signed", "Autopilot", "approve", "After the policy check", False),
-    ("record-invoice-payments", "Record payment of due invoices", "Autopilot", "auto", "After the policy check", False),
-    ("move-money-between-accounts", "Move money between accounts", "Cash-Flow", "never", "Out of scope", True),
-    ("change-vendor-bank-details", "Change vendor bank details", "Risk", "never", "Hard-coded block", True),
-]
+DEFAULT_GUARDRAILS: List[tuple] = [(a["guardrail"], a["label"], "Autopilot", a["default_mode"], "", False) for a in ACTIONS.values()]
+KNOWN_RULES = tuple(d[0] for d in DEFAULT_GUARDRAILS)
 
 
 class GuardrailLocked(ValueError):
@@ -130,11 +118,11 @@ class GovernanceStore:
     def list_guardrails(self, tenant_id: str) -> List[Dict[str, Any]]:
         rows = self._exec(
             "SELECT rule_id, action, agent, mode, limit_text, locked FROM backend_runtime.guardrails "
-            "WHERE tenant_id = %s ORDER BY position",
-            (tenant_id,),
+            "WHERE tenant_id = %s AND rule_id IN %s ORDER BY position",
+            (tenant_id, KNOWN_RULES),
             fetch="all",
         )
-        return [_guardrail(r) for r in rows]
+        return [_guardrail(r) for r in rows]  # rules for actions that no longer exist stay stored but are not shown
 
     def mode(self, tenant_id: str, rule_id: str) -> str:
         """The guardrail's current mode; an unknown action is never run on its own."""
@@ -154,7 +142,7 @@ class GovernanceStore:
             (tenant_id, rule_id),
             fetch="one",
         )
-        if row is None:
+        if row is None or rule_id not in KNOWN_RULES:
             raise KeyError(rule_id)
         if row["locked"]:
             raise GuardrailLocked(f"{rule_id} is locked and cannot be changed")

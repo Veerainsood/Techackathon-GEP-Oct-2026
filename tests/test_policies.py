@@ -185,6 +185,9 @@ def test_api_policies_catalog_conflict_and_status(e):
         r = c.post("/policies", headers=h, json={**body, "name": "Only signed", "allowed_values": ["Fully_Signed"]})
         assert r.status_code == 409 and "Only drafts" in r.json()["detail"]["message"]
         assert any(p["name"] == "Only drafts" for p in c.get("/policies", headers=h).json())
+        # guardrails: only actions whose records a policy covers ("Only drafts" covers pending contracts)
+        rows = c.get("/guardrails", headers=h).json()
+        assert [g["rule_id"] for g in rows] == ["sign-contracts"] and "Only drafts" in rows[0]["limit"]
         assert c.post("/autopilot/status", headers=h, json={"paused": True}).json() == {"paused": True}
         assert c.get("/autopilot/status", headers=h).json() == {"paused": True}
         c.post("/autopilot/status", headers=h, json={"paused": False})
