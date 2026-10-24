@@ -9,7 +9,8 @@ import { SectionLabel, SourceDot, Spinner, StatusPill } from '../components/ui'
 import type { Source } from '../data'
 import { manifestSource } from './adapter'
 import { Markdown } from './Markdown'
-import { api, type AskRequest, type ModelConfig, type RuntimeSource, type StreamEvent } from './api'
+import { PrepCard, type PrepState } from './PrepCard'
+import { api, type AskRequest, type ModelConfig, type PrepFix, type PrepJob, type RuntimeSource, type StreamEvent } from './api'
 
 type Row = Record<string, unknown>
 export interface Detail {
@@ -31,7 +32,7 @@ interface Result {
   total_ms: number
   detail?: Detail | null
   intent?: {
-    route?: 'answer' | 'clarify' | 'investigate'
+    route?: 'answer' | 'clarify' | 'investigate' | 'leakage'
     options?: string[]
     queried?: boolean
     brief?: { interpreted_question?: string } | null
@@ -64,6 +65,8 @@ interface Props {
   models: ModelConfig | null
   sourceCount?: number
   onAttach?: (files: File[]) => void
+  prep?: PrepState | null
+  onDecideFix?: (job: PrepJob, fix: PrepFix, approved: boolean) => Promise<void>
 }
 
 type Tab = 'answer' | 'actions' | 'sources'
@@ -77,9 +80,12 @@ const PHASES: { nodes: string[]; all?: boolean }[] = [
   { nodes: ['verify'] },
   { nodes: ['adjudicate', 'llm_adjudicate', 'targeted_followup'] },
   { nodes: ['respond', 'finalize'] },
+  { nodes: ['leakage_scan'] },
 ]
-// A direct reply or clarifying question only runs the first and last phases.
+const INVESTIGATION_PHASES = [0, 1, 2, 3, 4, 5, 6]
+// A direct reply or clarifying question only runs the first and last phases; the leakage hunter has its own step.
 const DIRECT_PHASES = [0, 6]
+const LEAKAGE_PHASES = [0, 7, 6]
 
 const num = (v: unknown): number | null => {
   if (typeof v === 'number') return Number.isFinite(v) ? v : null
@@ -224,13 +230,15 @@ export function LiveThread({
   models,
   sourceCount,
   onAttach,
+  prep,
+  onDecideFix,
 }: Props) {
   const [events, setEvents] = useState<StreamEvent[]>([])
   const [result, setResult] = useState<Result | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [stepsOpen, setStepsOpen] = useState(true)
   const [tab, setTab] = useState<Tab>('answer')
-  const query = request?.question ?? history[0]?.question ?? ''
+  const query = request?.question ?? history[0]?.question ?? (prep ? 'Uploaded files' : '')
   const callbacks = useRef({ onConversation, onComplete, onRunning })
   callbacks.current = { onConversation, onComplete, onRunning }
   const scrollRef = useRef<HTMLDivElement>(null)
@@ -316,8 +324,9 @@ export function LiveThread({
   })
   const intentEvent = events.find((e) => e.agent === 'Intent' && e.event === 'decision')
   const route = (result?.intent?.route ?? intentEvent?.route) as string | undefined
-  const direct = !!route && route !== 'investigate'
-  const visible = direct ? DIRECT_PHASES : PHASES.map((_, i) => i)
+  const leakage = route === 'leakage'
+  const direct = route === 'answer' || route === 'clarify'
+  const visible = leakage ? LEAKAGE_PHASES : direct ? DIRECT_PHASES : INVESTIGATION_PHASES
   const stepPos = done ? visible.length : Math.max(0, visible.findIndex((i) => !phaseState[i].isDone))
 
   const fresh = srcList.filter((s) => !s.stale).length
@@ -328,7 +337,9 @@ export function LiveThread({
         ? 'Needs a clarifying question before querying the data'
         : route === 'investigate'
           ? result?.intent?.brief?.interpreted_question ?? 'Data question'
-          : 'Understanding the question…'
+          : leakage
+            ? 'Find spend leakage'
+            : 'Understanding the question…'
   const steps = [
     { title: 'Understanding the question', detail: phaseState[0].error ?? routeDetail },
     {
@@ -345,6 +356,10 @@ export function LiveThread({
     direct
       ? { title: route === 'clarify' ? 'Asking you to choose' : 'Replying', detail: 'No queries needed' }
       : { title: 'Saving the result', detail: result ? `${result.artifacts.length} download${result.artifacts.length === 1 ? '' : 's'} ready` : 'Lineage and exports' },
+    {
+      title: attachments?.length ? `Hunting for leakage across ${attachments.length} file${attachments.length === 1 ? '' : 's'}` : 'Hunting for leakage',
+      detail: phaseState[7].error ?? 'Duplicates, prices against contracts, early-payment discounts, overpayments and unused licences',
+    },
   ]
   const shown = visible.map((i) => ({ ...steps[i], phase: i }))
 
@@ -387,6 +402,7 @@ export function LiveThread({
 
       <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto scrollbar-thin">
         <div className="mx-auto max-w-[760px] px-6 pb-40 pt-8">
+          {prep && onDecideFix && <PrepCard prep={prep} onDecide={onDecideFix} />}
           {/* earlier turns of this conversation */}
           {history.map((t, i) => (
             <section key={i} className="mb-10 border-b border-line pb-8">

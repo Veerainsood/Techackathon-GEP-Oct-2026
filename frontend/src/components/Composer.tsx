@@ -35,12 +35,17 @@ export function Composer({ onSubmit, placeholder = 'Set a financial goal or ask 
     <div className="relative rounded-2xl border border-line bg-white shadow-[0_1px_2px_rgba(0,0,0,0.04),0_4px_16px_rgba(0,0,0,0.04)] transition focus-within:border-stone-300 focus-within:shadow-[0_1px_2px_rgba(0,0,0,0.04),0_8px_24px_rgba(0,0,0,0.06)]">
       {attachments.length > 0 && (
         <div className="flex flex-wrap items-center gap-1.5 px-4 pt-3">
-          {attachments.map((name) => (
+          {(attachments.length > 3 ? attachments.slice(0, 2) : attachments).map((name) => (
             <span key={name} className="flex items-center gap-1 rounded-md border border-line bg-stone-50 px-1.5 py-0.5 text-[11px] text-stone-600">
               <Paperclip size={11} />
               {name}
             </span>
           ))}
+          {attachments.length > 3 && (
+            <span title={attachments.slice(2).join('\n')} className="rounded-md border border-line bg-stone-50 px-1.5 py-0.5 text-[11px] text-stone-600">
+              +{attachments.length - 2} more
+            </span>
+          )}
           {onRemoveAttachment && (
             <button onClick={onRemoveAttachment} title="Detach files" className="rounded px-1 text-[11px] text-stone-400 hover:text-ink">
               ×

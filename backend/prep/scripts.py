@@ -147,6 +147,9 @@ for op in ops:
                         s = s.where(~miss, params.get("value"))
                     elif method == "ffill":
                         s = s.where(~miss, None).ffill()
+                    elif method == "product":  # e.g. a missing line total = quantity x unit price
+                        a, b = (pd.to_numeric(text(df[x]).str.replace(",", "").str.strip(), errors="coerce") for x in params["of"])
+                        s = s.where(~miss, (a * b).round(2))
                     else:
                         raise ValueError(f"unknown fill method {method}")
                 else:

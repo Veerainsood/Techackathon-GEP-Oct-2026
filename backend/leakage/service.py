@@ -75,10 +75,36 @@ TYPE_LABEL = {"duplicate_invoice": "Duplicate invoices", "price_variance": "Pric
 _dumps = lambda o: json.dumps(o, default=str)  # noqa: E731
 
 
+LEDGER_TABLES = {
+    "ledger_suppliers": ("suppliers", "Vendors read from the uploaded files (normalised; duplicate vendor records kept)"),
+    "ledger_contracts": ("supplier_contracts", "Supplier contracts read from the uploaded files, with discount and escalation terms"),
+    "ledger_price_list": ("contract_rate_cards", "Contracted unit prices per item, read from the uploaded files"),
+    "ledger_purchase_orders": ("purchase_orders", "Purchase orders read from the uploaded files"),
+    "ledger_invoices": ("supplier_invoices", "All supplier invoices from the uploaded files (every export and scanned invoices), "
+                                             "normalised: amount, currency, fx_rate to USD, status, source file"),
+    "ledger_invoice_lines": ("supplier_invoice_lines", "Invoice lines from the uploaded files"),
+    "ledger_payments": ("supplier_payments", "Payments from the uploaded files, linked to invoices (refunds negative)"),
+    "ledger_licences": ("saas_subscriptions", "SaaS subscriptions from the uploaded files, price per seat per month"),
+    "ledger_licence_users": ("saas_seat_assignments", "SaaS seats assigned to users, with last login, from the uploaded files"),
+}
+
+
+def findings_frame(cases: List[Dict[str, Any]]):
+    import pandas as pd
+
+    return pd.DataFrame([{"leak_type": TYPE_LABEL.get(c["type"], c["type"]), "record": c["ref"], "related": ", ".join(map(str, c.get("related") or [])),
+                          "supplier": c.get("supplier_name"), "recoverable_usd": c["recoverable_usd"], "confidence": c["confidence"],
+                          "priority_score": c["priority_score"], "recommended_action": ACTION_TEXT[c["action"]][1], "root_cause": c["root_cause"]}
+                         for c in cases],
+                        columns=["leak_type", "record", "related", "supplier", "recoverable_usd", "confidence", "priority_score",
+                                 "recommended_action", "root_cause"])
+
+
 class LeakageService:
-    def __init__(self, engine: Any, uri: str, source_id: str = "finance_pg"):
+    def __init__(self, engine: Any, uri: str, source_id: str = "finance_pg", ledger_llm: Any = None):
         self.e = engine
         self.source_id = source_id
+        self.ledger_llm = ledger_llm  # reviews how uploaded files map onto the ledger (structured output)
         self._pool = shared_pool(uri)
         self._exec(DDL)
         self._lock = threading.Lock()
@@ -242,6 +268,44 @@ class LeakageService:
         for r in rows:
             r["amount_usd"] = float(r["amount_usd"] or 0)
         return rows
+
+    # ------------------------------------------------------------------ uploaded files
+    def scan_workspace(self, ctx: AccessContext, ws_id: str, on_event=None) -> Dict[str, Any]:
+        """Find leakage in a conversation's uploaded files (any AP exports). Cached per set of files."""
+        from backend.leakage.ledger import scan_tables
+
+        info = self.e.workspaces.get(ctx, ws_id)
+        ws_ctx = self.e.workspaces.context(ctx, ws_id)
+        adapter = self.e.gateway.adapter(ws_ctx, info["source_id"])
+        sig = tuple(sorted(f["file_id"] for f in info["files"]))
+        cached = info.get("leakage")
+        if cached and cached["sig"] == sig:
+            return cached["result"]
+        tables = {c: adapter.frame(c) for c in adapter.discover_collections() if not adapter.derived(c)}
+        res = scan_tables(tables, llm=self.ledger_llm, on_event=on_event)
+        result = {k: res[k] for k in ("mapping", "mapping_meta", "report", "cases")}
+        result["files"] = len(tables)
+        info["leakage"] = {"sig": sig, "result": result}
+        threading.Thread(target=self._publish_ledger, args=(ws_ctx, info, adapter, res["ledger"], res["cases"]), daemon=True,
+                         name=f"ledger-{ws_id}").start()
+        return result
+
+    def _publish_ledger(self, ws_ctx: AccessContext, info: Dict[str, Any], adapter: Any, ledger: Any, cases: List[Dict[str, Any]]) -> None:
+        """Make the normalised ledger and the findings queryable in the workspace, so follow-up questions can use them."""
+        try:
+            names = {r["supplier_id"]: r["supplier_name"] for r in ledger.tables["suppliers"].to_dict("records")}
+            for name, (table, description) in LEDGER_TABLES.items():
+                df = ledger.tables[table].copy()
+                if "supplier_id" in df.columns and table != "suppliers":
+                    df.insert(df.columns.get_loc("supplier_id") + 1, "supplier_name", df["supplier_id"].map(names))
+                adapter.add_frame(name, df, description)
+            adapter.add_frame("leakage_findings", findings_frame(cases),
+                              "Spend leakage found in the uploaded files: type, record, supplier, recoverable USD, confidence, "
+                              "recommended recovery action and root cause")
+            self.e.prepare_source(ws_ctx, info["source_id"], force=True)
+            info["collections"] = adapter.discover_collections()
+        except Exception:
+            pass  # the answer is already given; follow-ups fall back to the raw files
 
     # ------------------------------------------------------------------ always running
     def start_sweeper(self, every_s: float, tenant: str = "default") -> None:

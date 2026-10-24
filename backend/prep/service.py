@@ -114,7 +114,14 @@ class PrepService:
         self.store = store
         self.provider = sandbox_provider() if sandbox_factory is None else "custom"
         self._factory = sandbox_factory or self._default_factory
-        self._lock = threading.Lock()  # one job at a time in the shared sandbox
+        # jobs run side by side, each in its own folder of the shared sandbox; starting the sandbox is serialised
+        default_parallel = "8" if self.provider == "daytona" else "4"  # local processes share this machine
+        self._slots = threading.BoundedSemaphore(int(os.environ.get("BACKEND_PREP_PARALLEL", default_parallel)))
+        self._start_lock = threading.Lock()
+
+    def _box(self, job_id: str) -> Sandbox:
+        with self._start_lock:
+            return self._factory(job_id)
 
     def _default_factory(self, job_id: str) -> Sandbox:
         if self.provider == "daytona":
@@ -131,8 +138,11 @@ class PrepService:
     def _run(self, box: Sandbox, script_name: str, script: str, args: List[str], timeout_s: int = 300) -> Dict[str, Any]:
         box.upload(script_name, script.encode())
         res = box.run_script(script_name, args, timeout_s)
+        if res.get("exit_code") != 0 and not (res.get("stderr") or "").strip():
+            res = box.run_script(script_name, args, timeout_s)  # killed without output (e.g. host under load): retry once
         if res.get("exit_code") != 0:
-            raise PrepError(f"{script_name} failed in the sandbox: {(res.get('stderr') or res.get('stdout') or '')[-600:]}")
+            raise PrepError(f"{script_name} failed in the sandbox (exit {res.get('exit_code')}): "
+                            f"{(res.get('stderr') or res.get('stdout') or 'no output')[-600:]}")
         return res
 
     def _profile(self, box: Sandbox, data_rel: str) -> Dict[str, Any]:
@@ -165,8 +175,8 @@ class PrepService:
 
     def _check(self, job_id: str, filename: str, data: bytes, sha: Optional[str], source: str,
                on_event: Optional[Callable[[Dict[str, Any]], None]]) -> Dict[str, Any]:
-        with self._lock:
-            box = self._factory(job_id)
+        with self._slots:
+            box = self._box(job_id)
             try:
                 data_rel = f"data/{_safe(filename)}"
                 self._upload(box, data_rel, data, sha)
@@ -232,8 +242,8 @@ class PrepService:
     def _release_held(self, job: Dict[str, Any], approved: List[Dict[str, Any]]) -> None:
         held = job["meta"].get("held_records") or []
         if held and approved:
-            with self._lock:
-                box = self._factory(job["job_id"])
+            with self._slots:
+                box = self._box(job["job_id"])
                 try:
                     data_rel = "data/held.csv"
                     self._upload(box, data_rel, _records_to_csv(held, flat=True))
@@ -288,8 +298,8 @@ class PrepService:
             self.store.update(job["job_id"], status="done")
             return self.job(job["job_id"])
         current = self.e.files.get(tenant, job["owner"], job["checked_file_id"], kind="upload")
-        with self._lock:
-            box = self._factory(job["job_id"])
+        with self._slots:
+            box = self._box(job["job_id"])
             try:
                 data_rel = f"data/{_safe(current.filename)}"
                 self._upload(box, data_rel, self.e.files.read_bytes(current), current.sha256)

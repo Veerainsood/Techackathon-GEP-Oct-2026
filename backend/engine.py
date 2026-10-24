@@ -240,7 +240,11 @@ def build_engine(settings: Optional[Settings] = None, register_defaults: bool = 
     from backend.prep.service import PrepJobStore, PrepService
     engine.prep = PrepService(engine, prep_llm, PrepJobStore(knowledge_uri))
     from backend.leakage.service import LeakageService
-    engine.leakage = LeakageService(engine, knowledge_uri)
+    ledger_llm = None
+    if llm_providers is None and settings.reasoning_mode != "offline":
+        from backend.llm.config import LLMSettings, build_provider
+        ledger_llm = build_provider(LLMSettings.from_env("ledger"))
+    engine.leakage = LeakageService(engine, knowledge_uri, ledger_llm=ledger_llm)
     if register_defaults:
         # Detected leakage cases, readable by the agents like any other data (read-only, one table).
         gateway.register(PostgresSourceAdapter("leakage", knowledge_uri, name="Leakage cases",

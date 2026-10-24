@@ -79,6 +79,26 @@ class FileSourceAdapter(SQLSourceAdapter):
         self._schema_cache.clear()
         return sorted(set(self._files) - before)
 
+    def frame(self, collection: str) -> pd.DataFrame:
+        if collection not in self._files:
+            raise KeyError(f"unknown collection {collection}")
+        with self._lock:
+            return self._conn.execute(f'SELECT * FROM "{collection}"').df()
+
+    def add_frame(self, name: str, df: pd.DataFrame, description: str) -> str:
+        """A table derived from the uploaded files (e.g. the normalised ledger); queryable like the files themselves."""
+        name = _safe_name(name)
+        with self._lock:
+            self._conn.register("__backend_df", df)
+            self._conn.execute(f'CREATE OR REPLACE TABLE "{name}" AS SELECT * FROM "__backend_df"')
+            self._conn.unregister("__backend_df")
+        self._files[name] = f"derived:{description}"
+        self._schema_cache.clear()
+        return name
+
+    def derived(self, collection: str) -> bool:
+        return self._files.get(collection, "").startswith("derived:")
+
     def _run(self, sql: str, params: Optional[Sequence[Any]] = None, timeout_s: int = 30) -> Tuple[List[str], List[tuple]]:
         with self._lock:
             cur = self._conn.cursor()
@@ -109,8 +129,10 @@ class FileSourceAdapter(SQLSourceAdapter):
         _c, rows = self._run(f'DESCRIBE "{collection}"')
         _c, cnt = self._run(f'SELECT COUNT(*) FROM "{collection}"')
         cols = [ColumnSchema(name=r[0], data_type=str(r[1]), nullable=(r[2] or "YES") == "YES") for r in rows]
+        origin = self._files[collection]
         schema = CollectionSchema(source_id=self.source_id, collection_name=collection, full_name=collection,
                                   row_count=int(cnt[0][0]), columns=cols,
-                                  description=f"Uploaded file {Path(self._files[collection].split('#')[0]).name}")
+                                  description=origin[len("derived:"):] if origin.startswith("derived:")
+                                  else f"Uploaded file {Path(origin.split('#')[0]).name}")
         self._schema_cache[collection] = schema
         return schema

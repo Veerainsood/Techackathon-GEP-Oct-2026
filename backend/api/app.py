@@ -620,6 +620,20 @@ def leakage_scan(ctx: AccessContext = Depends(access)) -> Dict[str, Any]:
     return engine().leakage.scan(ctx.tenant_id)
 
 
+class WorkspaceScanRequest(BaseModel):
+    workspace_id: str
+
+
+@app.post("/leakage/scan-workspace")
+def leakage_scan_workspace(body: WorkspaceScanRequest, ctx: AccessContext = Depends(access)) -> Dict[str, Any]:
+    """Find leakage in a workspace's uploaded files: how each file was read, and every case with evidence."""
+    try:
+        res = engine().leakage.scan_workspace(ctx, body.workspace_id)
+    except AccessDenied as exc:
+        raise HTTPException(404, str(exc))
+    return {k: res[k] for k in ("mapping", "mapping_meta", "report", "cases", "files")}
+
+
 @app.get("/leakage/summary")
 def leakage_summary(ctx: AccessContext = Depends(access)) -> Dict[str, Any]:
     return engine().leakage.summary(ctx.tenant_id)
@@ -646,15 +660,20 @@ def prep_files(body: PrepFilesRequest, ctx: AccessContext = Depends(access)) -> 
     """Check uploaded files in the sandbox before use: safe fixes are applied to a new version; others go to Approvals."""
     from backend.tools.files import FileAccessDenied
 
-    jobs = []
-    for fid in body.file_ids:
+    from concurrent.futures import ThreadPoolExecutor
+
+    def check(fid: str) -> Dict[str, Any]:
         try:
-            jobs.append(engine().prep.check_file(ctx.tenant_id, ctx.user_id, fid))
+            return engine().prep.check_file(ctx.tenant_id, ctx.user_id, fid)
         except FileAccessDenied:
             raise HTTPException(404, f"unknown file {fid}")
         except Exception as exc:
             raise HTTPException(502, f"checking the file failed: {type(exc).__name__}: {str(exc)[:300]}")
-    return jobs
+
+    if len(body.file_ids) <= 1:
+        return [check(fid) for fid in body.file_ids]
+    with ThreadPoolExecutor(max_workers=min(8, len(body.file_ids))) as pool:  # the service caps sandbox concurrency
+        return list(pool.map(check, body.file_ids))
 
 
 async def _signed_body(request: Request) -> Dict[str, Any]:

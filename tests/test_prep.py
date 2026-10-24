@@ -100,6 +100,26 @@ def test_llm_plan_investigates_in_the_sandbox_and_bad_plans_are_sent_back(pg_uri
     assert job["findings"][0]["severity"] == "critical" and len(rows(e, job["checked_file_id"])) == 6
 
 
+def test_computed_fill_uses_product_and_formulas_as_text_are_sent_back(pg_uri, uploads_dir):
+    from backend.engine import build_engine
+
+    calls = {"n": 0}
+
+    def policy(system, messages, tools):
+        calls["n"] += 1
+        if calls["n"] == 1:  # a formula written as a constant would put the text into every gap
+            return tool("submit_plan", summary="x", fixes=[{"op": "fill_missing", "columns": ["total"], "rationale": "x",
+                                                            "params": {"method": "constant", "value": "qty * price"}}])
+        assert "names a column" in last_tool_result(messages)
+        return tool("submit_plan", summary="Lines checked", fixes=[{"op": "fill_missing", "columns": ["total"], "rationale": "qty x price",
+                                                                    "params": {"method": "product", "of": ["qty", "price"]}}])
+
+    e = build_engine(llm_providers=(None, None, None, None, ScriptedProvider(policy)))
+    job = e.prep.check_file(TENANT, USER, upload(e, b"id,qty,price,total\n1,2,5,10\n2,3,4.5,\n", "lines.csv").file_id)
+    assert job["fixes"][0]["status"] == "applied" and job["pending"] == 0
+    assert [float(r["total"]) for r in rows(e, job["checked_file_id"])] == [10.0, 13.5]
+
+
 def test_day_month_ambiguous_dates_need_approval(engine):
     data = b"id,start_date\n1,2026-01-05\n2,05/02/2026\n3,2026-03-01\n"
     job = engine.prep.check_file(TENANT, USER, upload(engine, data, "dates.csv").file_id)

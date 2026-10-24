@@ -21,8 +21,9 @@ import {
   toTimeline,
   useLiveData,
 } from './live/adapter'
-import { api, type AskRequest, type ConversationRow } from './live/api'
+import { api, type AskRequest, type ConversationRow, type PrepFix, type PrepJob } from './live/api'
 import { LiveThread, type Turn } from './live/LiveThread'
+import type { PrepState } from './live/PrepCard'
 
 // Questions the connected finance warehouse can answer (live mode Home / Related suggestions).
 const LIVE_EXAMPLES = [
@@ -49,6 +50,7 @@ export default function App() {
   const [request, setRequest] = useState<AskRequest | null>(null)
   const [workspace, setWorkspace] = useState<string | null>(null)
   const [attachments, setAttachments] = useState<string[]>([])
+  const [prep, setPrep] = useState<PrepState | null>(null)
   const [conversationId, setConversationId] = useState<string | null>(null)
   const [turns, setTurns] = useState<Turn[]>([]) // earlier turns of the open conversation
   const [lastDone, setLastDone] = useState<Turn | null>(null) // the current question, once answered
@@ -197,6 +199,7 @@ export default function App() {
     setRequest(null)
     setWorkspace(null)
     setAttachments([])
+    setPrep(null)
     setView('home')
   }
 
@@ -213,6 +216,7 @@ export default function App() {
       setRequest(null)
       setWorkspace(conversation.workspace_id ?? null)
       setAttachments((conversation.files ?? []).map((f) => f.filename))
+      setPrep(null)
       setView('thread')
     } catch (err) {
       setToast(`Could not open conversation: ${err instanceof Error ? err.message : String(err)}`)
@@ -232,23 +236,39 @@ export default function App() {
     }
   }
 
+  // Attached files are checked by the data-prep agent; the result (and any decision it needs) shows in the chat.
   const attach = async (files: File[]) => {
+    const names = files.map((f) => f.name)
+    setPrep({ busy: true, names, jobs: [] })
+    setView('thread')
     try {
-      setToast(`Uploading ${files.map((f) => f.name).join(', ')}…`)
       const stored = await api.upload(files)
-      setToast('Checking data quality in the sandbox…')
       const jobs = await api.prepFiles(stored.map((f) => f.file_id))
       const ws = await api.createWorkspace(jobs.map((j) => j.checked_file_id ?? j.input_file_id))
       setWorkspace(ws.workspace_id)
       setAttachments(ws.files.map((f) => f.filename))
-      const applied = jobs.reduce((n, j) => n + j.applied, 0)
-      const pending = jobs.reduce((n, j) => n + j.pending, 0)
-      setToast(
-        `${files.length} file${files.length > 1 ? 's' : ''} checked · ${applied} fix${applied === 1 ? '' : 'es'} applied` +
-          (pending ? ` · ${pending} waiting in Approvals` : ''),
-      )
+      setPrep({ busy: false, names, jobs })
     } catch (err) {
+      setPrep(null)
       setToast(`Upload failed: ${err instanceof Error ? err.message : String(err)}`)
+    }
+  }
+
+  const decideFix = async (job: PrepJob, fix: PrepFix, approved: boolean) => {
+    try {
+      await api.decideApproval(`${job.job_id}-${fix.id}`, approved)
+      const updated = await api.prepJob(job.job_id)
+      const jobs = (prep?.jobs ?? []).map((j) => (j.job_id === job.job_id ? updated : j))
+      setPrep((p) => (p ? { ...p, jobs } : p))
+      if (updated.status === 'done' && updated.checked_file_id !== job.checked_file_id) {
+        const ws = await api.createWorkspace(jobs.map((j) => j.checked_file_id ?? j.input_file_id))
+        setWorkspace(ws.workspace_id)
+        setToast(`${job.filename}: fix applied in the sandbox; questions now use the new version`)
+      } else {
+        setToast(approved ? `${job.filename}: approved` : `${job.filename}: rejected, the data stays as it was`)
+      }
+    } catch (err) {
+      setToast(`Decision not saved: ${err instanceof Error ? err.message : String(err)}`)
     }
   }
 
@@ -370,7 +390,7 @@ export default function App() {
           />
         )}
         {view === 'thread' &&
-          (LIVE && (request || turns.length > 0) ? (
+          (LIVE && (request || turns.length > 0 || prep) ? (
             <LiveThread
               request={request}
               history={turns}
@@ -390,6 +410,8 @@ export default function App() {
               models={live.models}
               sourceCount={sourceCount}
               onAttach={attach}
+              prep={prep}
+              onDecideFix={decideFix}
             />
           ) : (
             <Thread

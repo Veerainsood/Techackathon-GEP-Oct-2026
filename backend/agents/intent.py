@@ -36,7 +36,7 @@ class IntentBrief(BaseModel):
 
 
 class IntentDecision(BaseModel):
-    route: Literal["answer", "clarify", "investigate"]
+    route: Literal["answer", "clarify", "investigate", "leakage"]
     reason: str
     answer: Optional[str] = Field(None, description="The reply, for route=answer")
     clarifying_question: Optional[str] = Field(None, description="For route=clarify")
@@ -54,6 +54,9 @@ CONVERSATIONAL = re.compile(r"^\s*(hi|hello|hey|thanks|thank you|good (morning|a
 CATALOG = re.compile(r"\b(what|which)\s+(data|data sources|sources|databases|tables|collections)\b.*\b(have|access|available|"
                      r"connected|know|use)\b", re.I)
 FRESHNESS = re.compile(r"\b(how fresh|freshness|last (sync|synced|updated)|up to date)\b", re.I)
+LEAKAGE = re.compile(r"\b(leak|leaks|leakage|leaking|overpa(y|id|ying|yment|yments)|duplicate (invoice|payment|bill)s?|"
+                     r"double[- ]?(paid|billed|payments?)|paid twice|missed (early[- ]payment )?discounts?|unused (licen[cs]es?|seats?|"
+                     r"subscriptions?)|claw[- ]?backs?|recoverable|overcharg(e|ed|es|ing)|price variances?|losing money)\b", re.I)
 
 
 def capability_text() -> str:
@@ -76,6 +79,8 @@ class IntentAgent:
 
         ``history`` is the conversation so far (role/content, oldest first); ``files`` are the attached files.
         """
+        if LEAKAGE.search(question):  # a direct request for the leakage hunter: no model call needed to route it
+            return IntentDecision(route="leakage", reason="request to find spend leakage"), {"mode": "rules", "queried": False}
         if self.llm is not None:
             try:
                 return asyncio.run(self._decide_llm(question, session, freshness, on_event or (lambda e: None),

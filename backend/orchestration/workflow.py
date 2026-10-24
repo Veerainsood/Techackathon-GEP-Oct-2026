@@ -160,7 +160,67 @@ class DualPathWorkflow:
         return out
 
     def after_intent(self, state: BackendState) -> str:
-        return "resolve_sources" if state.get("intent", {}).get("route", "investigate") == "investigate" else "respond"
+        route = state.get("intent", {}).get("route", "investigate")
+        return {"investigate": "resolve_sources", "leakage": "leakage_scan"}.get(route, "respond")
+
+    def leakage_scan(self, state: BackendState) -> Dict[str, Any]:
+        """Run the leakage hunter on the conversation's uploaded files, or on the connected procurement data."""
+        from backend.leakage.service import ACTION_TEXT, TYPE_LABEL
+
+        t0 = time.perf_counter()
+        ctx = self._ctx(state)
+        emit = self._sink(state["request_id"])
+        tenant, _, ws_id = ctx.tenant_id.partition("::ws::")
+        if ws_id:
+            principal = AccessContext(tenant_id=ctx.principal_tenant or tenant, user_id=ctx.user_id, max_rows=ctx.max_rows)
+            res = self.e.leakage.scan_workspace(principal, ws_id, on_event=emit)
+            cases, report, scope = res["cases"], res["report"], f"the {res['files']} uploaded files"
+            source = "uploaded files"
+        else:
+            self.e.leakage.scan(ctx.tenant_id)
+            rows = [r for r in self.e.leakage.cases(ctx.tenant_id) if r["status"] != "resolved"]
+            cases = [{"type": r["leakage_type"], "ref": r["record_id"], "related": r.get("related_records") or [], "supplier_name": r["supplier_name"],
+                      "recoverable_usd": r["recoverable_usd"], "confidence": r["confidence"], "priority_score": r["priority_score"],
+                      "root_cause": r["root_cause"], "action": r["recovery_action"]} for r in rows]
+            report, scope, source = {}, "the connected procurement data", "finance_pg"
+        total = round(sum(c["recoverable_usd"] for c in cases), 2)
+        by_type: Dict[str, List[Dict[str, Any]]] = {}
+        for c in cases:
+            by_type.setdefault(c["type"], []).append(c)
+        lines = [f"**I found {len(cases)} likely leaks worth ${total:,.2f} recoverable** in {scope}." if cases
+                 else f"**I found no spend leakage** in {scope}."]
+        for t, cs in sorted(by_type.items(), key=lambda kv: -sum(c["recoverable_usd"] for c in kv[1])):
+            lines.append(f"- {TYPE_LABEL.get(t, t)}: {len(cs)} case{'s' if len(cs) != 1 else ''}, "
+                         f"${sum(c['recoverable_usd'] for c in cs):,.2f}")
+        if cases:
+            lines.append("\n**Biggest items**")
+            for c in cases[:5]:
+                lines.append(f"- {c['ref']} ({c.get('supplier_name') or 'unknown vendor'}), ${c['recoverable_usd']:,.2f}: {c['root_cause']}")
+        if report.get("files"):
+            read = [f for f in report["files"] if f["role"] != "ignore"]
+            ignored = [f["table"] for f in report["files"] if f["role"] == "ignore"]
+            roles: Dict[str, List[str]] = {}
+            for f in read:
+                roles.setdefault(f["role"].replace("_", " "), []).append(f["table"])
+            lines.append("\n**What I read**")
+            lines.append("- " + "; ".join(f"{r}: {', '.join(ts)}" for r, ts in roles.items()))
+            counts = report.get("counts", {})
+            lines.append(f"- {counts.get('supplier_invoices', 0)} invoices, {counts.get('supplier_payments', 0)} linked payments, "
+                         f"{counts.get('saas_subscriptions', 0)} licences")
+            if ignored:
+                lines.append(f"- Not used (not accounts-payable data): {', '.join(ignored)}")
+            for w in report.get("warnings", [])[:5]:
+                lines.append(f"- {w}")
+        rows_out = [{"leak_type": TYPE_LABEL.get(c["type"], c["type"]), "record": c["ref"], "supplier": c.get("supplier_name"),
+                     "recoverable_usd": c["recoverable_usd"], "confidence": c["confidence"],
+                     "recommended_action": ACTION_TEXT.get(c["action"], (c["action"], c["action"]))[1], "root_cause": c["root_cause"]}
+                    for c in cases]
+        decision = AdjudicationDecision(question=state["question"], selected_path="Leakage_Scan", agreement_status="not_applicable",
+                                        final_answer="\n".join(lines), final_structured_data=rows_out, winning_query="",
+                                        winning_source_id=source, verification_status=VerificationStatus.VERIFIED_FACT,
+                                        confidence_score=0.9 if cases else 0.8, unresolved_assumptions=list(report.get("warnings", [])))
+        return {"decision": decision.model_dump(mode="json"),
+                "trace": _t("leakage_scan", t0, cases=len(cases), recoverable_usd=total, scope=source)}
 
     def respond(self, state: BackendState) -> Dict[str, Any]:
         """Turn a direct reply or clarifying question into the same decision shape the investigation produces."""
@@ -411,7 +471,7 @@ class DualPathWorkflow:
                                                status="failed")
                         persisted["failed_query"] += 1
         exports = []
-        direct = (state.get("intent") or {}).get("route", "investigate") != "investigate"
+        direct = (state.get("intent") or {}).get("route", "investigate") in ("answer", "clarify")
         for fmt in [] if direct else state.get("export_formats") or []:
             meta = {"title": state["question"], "question": state["question"], "answer": d["final_answer"],
                     "verification_status": d["verification_status"], "agreement_status": d["agreement_status"],
@@ -504,6 +564,7 @@ class DualPathWorkflow:
         g.add_node("parse_request", w("parse_request", self.parse_request))
         g.add_node("understand_intent", w("understand_intent", self.understand_intent), retry_policy=TRANSIENT)
         g.add_node("respond", w("respond", self.respond))
+        g.add_node("leakage_scan", w("leakage_scan", self.leakage_scan), retry_policy=TRANSIENT)
         g.add_node("resolve_sources", w("resolve_sources", self.resolve_sources), retry_policy=TRANSIENT)
         g.add_node("retrieve_knowledge", w("retrieve_knowledge", self.retrieve_knowledge), retry_policy=TRANSIENT)
         g.add_node("explorer", w("explorer", self.explorer), retry_policy=TRANSIENT)
@@ -515,8 +576,9 @@ class DualPathWorkflow:
         g.add_node("finalize", w("finalize", self.finalize), retry_policy=TRANSIENT)
         g.add_edge(START, "parse_request")
         g.add_edge("parse_request", "understand_intent")
-        g.add_conditional_edges("understand_intent", self.after_intent, ["resolve_sources", "respond"])
+        g.add_conditional_edges("understand_intent", self.after_intent, ["resolve_sources", "respond", "leakage_scan"])
         g.add_edge("respond", "finalize")
+        g.add_edge("leakage_scan", "finalize")
         g.add_edge("resolve_sources", "retrieve_knowledge")
         g.add_conditional_edges("retrieve_knowledge", self.route_agents, ["explorer", "hercules"])
         g.add_edge("explorer", "verify")

@@ -1,0 +1,161 @@
+Journal ID,Posting Date,GL Account,Description,Debit,Credit,Cost Centre
+JE-00001,2025-09-22,2100 Accrued Liabilities,Reclass,525.60,,CC-300
+JE-00002,2025-01-25,6200 Travel,Monthly accrual,,"13,187.10",CC-200
+JE-00003,2025-12-14,6400 Freight,Reclass,"17,970.97",,CC-200
+JE-00004,2025-09-04,2100 Accrued Liabilities,Allocation,,"10,247.03",CC-200
+JE-00005,2025-10-07,6300 Software,Year-end adjustment,"11,481.46",,CC-100
+JE-00006,2025-11-08,6400 Freight,Year-end adjustment,,640.18,CC-200
+JE-00007,2025-11-10,6300 Software,Monthly accrual,"16,617.27",,CC-200
+JE-00008,2025-06-15,6200 Travel,Reclass,,"9,827.14",CC-300
+JE-00009,2025-11-24,6200 Travel,Reclass,"13,394.99",,CC-100
+JE-00010,2025-06-16,6300 Software,Allocation,,"5,804.68",CC-200
+JE-00011,2025-01-04,6400 Freight,Monthly accrual,"12,341.35",,CC-300
+JE-00012,2025-10-17,6200 Travel,Monthly accrual,,"14,501.01",CC-200
+JE-00013,2025-05-20,6400 Freight,Allocation,"7,214.12",,CC-200
+JE-00014,2025-06-03,6200 Travel,Allocation,,"6,183.21",CC-100
+JE-00015,2025-06-09,6300 Software,Allocation,"16,093.68",,CC-100
+JE-00016,2025-02-22,6400 Freight,Monthly accrual,,"15,894.85",CC-100
+JE-00017,2025-03-22,6400 Freight,Year-end adjustment,"14,060.05",,CC-300
+JE-00018,2025-09-18,6300 Software,Monthly accrual,,"14,983.98",CC-200
+JE-00019,2025-07-07,6100 Office Supplies,Allocation,"1,008.68",,CC-300
+JE-00020,2025-06-09,6300 Software,Allocation,,"16,248.77",CC-300
+JE-00021,2025-05-11,6300 Software,Reclass,"11,445.48",,CC-100
+JE-00022,2025-10-22,6100 Office Supplies,Monthly accrual,,"9,114.32",CC-100
+JE-00023,2025-08-11,6100 Office Supplies,Reclass,"12,807.59",,CC-300
+JE-00024,2025-02-01,6100 Office Supplies,Reclass,,"4,757.76",CC-300
+JE-00025,2025-08-06,6100 Office Supplies,Year-end adjustment,"15,963.09",,CC-200
+JE-00026,2025-01-11,6200 Travel,Year-end adjustment,,"5,417.49",CC-300
+JE-00027,2025-01-07,2100 Accrued Liabilities,Reclass,"3,781.64",,CC-300
+JE-00028,2025-09-26,6200 Travel,Year-end adjustment,,"12,121.27",CC-300
+JE-00029,2025-02-03,6300 Software,Reclass,"11,045.38",,CC-300
+JE-00030,2025-07-23,6400 Freight,Year-end adjustment,,"3,163.54",CC-100
+JE-00031,2025-04-06,6300 Software,Allocation,"17,224.04",,CC-300
+JE-00032,2025-06-04,6400 Freight,Reclass,,"6,371.29",CC-100
+JE-00033,2025-04-30,6100 Office Supplies,Reclass,"12,951.25",,CC-200
+JE-00034,2025-04-10,6100 Office Supplies,Allocation,,"12,539.43",CC-200
+JE-00035,2025-03-17,6400 Freight,Monthly accrual,"7,247.88",,CC-200
+JE-00036,2025-03-16,2100 Accrued Liabilities,Reclass,,"17,484.16",CC-200
+JE-00037,2025-02-07,6200 Travel,Reclass,"13,917.78",,CC-100
+JE-00038,2025-06-13,6200 Travel,Year-end adjustment,,"16,393.50",CC-300
+JE-00039,2025-01-19,6300 Software,Reclass,"16,021.43",,CC-100
+JE-00040,2025-03-05,6100 Office Supplies,Monthly accrual,,"16,151.39",CC-300
+JE-00041,2025-09-20,6400 Freight,Allocation,"18,920.46",,CC-100
+JE-00042,2025-06-09,6100 Office Supplies,Allocation,,"3,489.00",CC-100
+JE-00043,2025-06-08,6100 Office Supplies,Allocation,"17,188.27",,CC-100
+JE-00044,2025-09-04,2100 Accrued Liabilities,Allocation,,"10,715.97",CC-200
+JE-00045,2025-01-03,6100 Office Supplies,Monthly accrual,298.11,,CC-100
+JE-00046,2025-03-13,6200 Travel,Reclass,,"17,637.81",CC-100
+JE-00047,2025-06-24,6400 Freight,Monthly accrual,"18,673.74",,CC-200
+JE-00048,2025-05-10,6100 Office Supplies,Allocation,,"19,117.98",CC-100
+JE-00049,2025-11-21,6300 Software,Allocation,"14,276.07",,CC-100
+JE-00050,2025-01-29,6300 Software,Allocation,,"8,382.79",CC-100
+JE-00051,2025-07-07,2100 Accrued Liabilities,Monthly accrual,"9,203.26",,CC-300
+JE-00052,2025-08-17,2100 Accrued Liabilities,Allocation,,"18,678.05",CC-200
+JE-00053,2025-07-30,2100 Accrued Liabilities,Year-end adjustment,"3,677.58",,CC-100
+JE-00054,2025-09-18,6200 Travel,Reclass,,"12,765.49",CC-100
+JE-00055,2025-06-23,6300 Software,Monthly accrual,"18,089.36",,CC-100
+JE-00056,2025-12-15,6400 Freight,Allocation,,"13,107.36",CC-200
+JE-00057,2025-10-09,2100 Accrued Liabilities,Monthly accrual,"3,447.50",,CC-200
+JE-00058,2025-08-20,6400 Freight,Monthly accrual,,"16,843.72",CC-300
+JE-00059,2025-06-12,6200 Travel,Year-end adjustment,"6,722.97",,CC-200
+JE-00060,2025-06-19,6200 Travel,Monthly accrual,,676.29,CC-100
+JE-00061,2025-07-07,6200 Travel,Monthly accrual,"4,958.13",,CC-100
+JE-00062,2025-07-25,6100 Office Supplies,Year-end adjustment,,"6,228.45",CC-100
+JE-00063,2025-04-27,2100 Accrued Liabilities,Allocation,"17,839.42",,CC-300
+JE-00064,2025-01-03,6100 Office Supplies,Year-end adjustment,,"16,694.55",CC-100
+JE-00065,2025-05-06,6300 Software,Allocation,"12,808.26",,CC-100
+JE-00066,2025-10-01,6100 Office Supplies,Reclass,,"14,508.14",CC-300
+JE-00067,2025-04-14,2100 Accrued Liabilities,Year-end adjustment,"8,269.97",,CC-300
+JE-00068,2025-12-26,6300 Software,Reclass,,"10,312.73",CC-100
+JE-00069,2025-11-12,6300 Software,Allocation,"7,569.73",,CC-300
+JE-00070,2025-09-29,6400 Freight,Year-end adjustment,,"12,215.35",CC-200
+JE-00071,2025-06-21,2100 Accrued Liabilities,Year-end adjustment,"6,234.10",,CC-200
+JE-00072,2025-08-18,6400 Freight,Reclass,,"8,478.90",CC-100
+JE-00073,2025-10-20,6400 Freight,Reclass,"19,085.00",,CC-300
+JE-00074,2025-03-30,6100 Office Supplies,Reclass,,"15,802.86",CC-200
+JE-00075,2025-12-22,6400 Freight,Reclass,"4,159.28",,CC-200
+JE-00076,2025-12-14,6200 Travel,Year-end adjustment,,"3,466.08",CC-300
+JE-00077,2025-12-25,6300 Software,Monthly accrual,"14,448.44",,CC-100
+JE-00078,2025-10-28,6100 Office Supplies,Reclass,,"17,907.76",CC-100
+JE-00079,2025-07-12,6100 Office Supplies,Monthly accrual,"6,809.41",,CC-300
+JE-00080,2025-05-27,6200 Travel,Reclass,,"16,357.42",CC-300
+JE-00081,2025-05-08,6400 Freight,Allocation,"1,360.57",,CC-300
+JE-00082,2025-01-19,2100 Accrued Liabilities,Year-end adjustment,,"2,701.22",CC-300
+JE-00083,2025-09-01,6300 Software,Monthly accrual,"17,204.18",,CC-300
+JE-00084,2025-05-17,2100 Accrued Liabilities,Year-end adjustment,,262.91,CC-100
+JE-00085,2025-02-16,6100 Office Supplies,Monthly accrual,"4,858.93",,CC-300
+JE-00086,2025-06-05,6400 Freight,Allocation,,"17,599.14",CC-300
+JE-00087,2025-01-04,6200 Travel,Allocation,"1,670.28",,CC-200
+JE-00088,2025-06-12,6100 Office Supplies,Allocation,,"13,504.90",CC-200
+JE-00089,2025-05-26,2100 Accrued Liabilities,Year-end adjustment,"18,660.35",,CC-200
+JE-00090,2025-01-22,2100 Accrued Liabilities,Year-end adjustment,,"4,352.44",CC-200
+JE-00091,2025-03-02,6100 Office Supplies,Monthly accrual,"9,956.28",,CC-100
+JE-00092,2025-06-06,6200 Travel,Reclass,,"4,631.20",CC-200
+JE-00093,2025-02-25,2100 Accrued Liabilities,Reclass,"16,737.38",,CC-200
+JE-00094,2025-08-12,6200 Travel,Year-end adjustment,,"5,015.31",CC-200
+JE-00095,2025-03-29,6100 Office Supplies,Year-end adjustment,"7,800.62",,CC-100
+JE-00096,2025-10-13,6400 Freight,Reclass,,"15,053.03",CC-300
+JE-00097,2025-10-03,6100 Office Supplies,Monthly accrual,"9,645.34",,CC-200
+JE-00098,2025-03-12,6100 Office Supplies,Monthly accrual,,"2,397.75",CC-100
+JE-00099,2025-12-23,6100 Office Supplies,Reclass,"19,100.89",,CC-300
+JE-00100,2025-11-07,6400 Freight,Monthly accrual,,"15,446.27",CC-100
+JE-00101,2025-02-13,6400 Freight,Year-end adjustment,"15,892.20",,CC-200
+JE-00102,2025-07-12,6400 Freight,Reclass,,"7,652.78",CC-100
+JE-00103,2025-01-27,2100 Accrued Liabilities,Monthly accrual,754.68,,CC-200
+JE-00104,2025-10-14,6100 Office Supplies,Reclass,,"3,352.35",CC-200
+JE-00105,2025-11-06,6300 Software,Year-end adjustment,"9,069.69",,CC-300
+JE-00106,2025-03-21,2100 Accrued Liabilities,Allocation,,"6,566.57",CC-200
+JE-00107,2025-09-11,6200 Travel,Allocation,"5,062.66",,CC-300
+JE-00108,2025-05-26,2100 Accrued Liabilities,Allocation,,"17,873.70",CC-100
+JE-00109,2025-04-04,2100 Accrued Liabilities,Year-end adjustment,"12,804.69",,CC-300
+JE-00110,2025-07-01,6300 Software,Year-end adjustment,,"7,212.57",CC-300
+JE-00111,2025-04-02,6200 Travel,Allocation,"5,426.71",,CC-300
+JE-00112,2025-08-02,2100 Accrued Liabilities,Monthly accrual,,"8,682.17",CC-200
+JE-00113,2025-11-16,6100 Office Supplies,Reclass,"1,517.90",,CC-300
+JE-00114,2025-10-14,6400 Freight,Allocation,,"1,551.61",CC-200
+JE-00115,2025-03-21,2100 Accrued Liabilities,Monthly accrual,"6,864.48",,CC-200
+JE-00116,2025-11-05,2100 Accrued Liabilities,Monthly accrual,,"10,099.26",CC-100
+JE-00117,2025-07-12,2100 Accrued Liabilities,Reclass,"4,644.89",,CC-200
+JE-00118,2025-04-09,6300 Software,Allocation,,"9,979.96",CC-100
+JE-00119,2025-11-09,6400 Freight,Year-end adjustment,"12,572.96",,CC-100
+JE-00120,2025-01-13,6300 Software,Reclass,,"17,472.49",CC-100
+JE-00121,2025-03-12,2100 Accrued Liabilities,Reclass,"3,743.99",,CC-200
+JE-00122,2025-06-27,6300 Software,Allocation,,"3,824.60",CC-300
+JE-00123,2025-01-31,2100 Accrued Liabilities,Year-end adjustment,"12,912.38",,CC-300
+JE-00124,2025-04-12,6300 Software,Year-end adjustment,,"17,375.46",CC-300
+JE-00125,2025-01-25,6400 Freight,Allocation,"16,085.61",,CC-100
+JE-00126,2025-11-29,6100 Office Supplies,Year-end adjustment,,"13,554.82",CC-300
+JE-00127,2025-03-01,6100 Office Supplies,Allocation,"8,835.15",,CC-300
+JE-00128,2025-01-27,6400 Freight,Allocation,,"19,327.37",CC-300
+JE-00129,2025-08-25,6100 Office Supplies,Allocation,"5,531.89",,CC-300
+JE-00130,2025-07-15,6300 Software,Year-end adjustment,,"15,298.47",CC-200
+JE-00131,2025-09-22,6200 Travel,Year-end adjustment,"14,768.69",,CC-100
+JE-00132,2025-05-20,6300 Software,Reclass,,"11,426.03",CC-200
+JE-00133,2025-11-06,6300 Software,Allocation,"17,271.00",,CC-100
+JE-00134,2025-11-30,6300 Software,Allocation,,"7,518.77",CC-300
+JE-00135,2025-09-01,6200 Travel,Monthly accrual,"19,757.90",,CC-300
+JE-00136,2025-11-29,2100 Accrued Liabilities,Allocation,,"15,602.91",CC-200
+JE-00137,2025-09-09,6100 Office Supplies,Monthly accrual,"8,823.46",,CC-100
+JE-00138,2025-11-14,6200 Travel,Allocation,,"14,121.01",CC-100
+JE-00139,2025-12-22,6300 Software,Monthly accrual,"18,698.94",,CC-200
+JE-00140,2025-09-24,6300 Software,Year-end adjustment,,"5,640.25",CC-100
+JE-00141,2025-02-27,2100 Accrued Liabilities,Allocation,"4,907.25",,CC-200
+JE-00142,2025-11-17,6100 Office Supplies,Reclass,,"16,912.03",CC-300
+JE-00143,2025-10-19,6300 Software,Reclass,"6,842.41",,CC-300
+JE-00144,2025-08-13,6100 Office Supplies,Allocation,,"18,521.78",CC-100
+JE-00145,2025-03-03,2100 Accrued Liabilities,Monthly accrual,"10,497.97",,CC-100
+JE-00146,2025-12-11,6100 Office Supplies,Reclass,,"3,914.32",CC-100
+JE-00147,2025-12-11,6200 Travel,Allocation,"12,495.30",,CC-100
+JE-00148,2025-01-14,6300 Software,Monthly accrual,,"18,564.76",CC-200
+JE-00149,2025-08-03,2100 Accrued Liabilities,Reclass,953.07,,CC-300
+JE-00150,2025-05-09,6300 Software,Monthly accrual,,"4,275.71",CC-100
+JE-00151,2025-05-24,6300 Software,Reclass,"19,165.44",,CC-100
+JE-00152,2025-09-24,6100 Office Supplies,Allocation,,"10,335.92",CC-100
+JE-00153,2025-10-02,6100 Office Supplies,Monthly accrual,"12,814.99",,CC-200
+JE-00154,2025-10-07,6100 Office Supplies,Reclass,,"16,119.26",CC-300
+JE-00155,2025-05-29,6200 Travel,Monthly accrual,"18,063.96",,CC-100
+JE-00156,2025-07-16,2100 Accrued Liabilities,Reclass,,"9,643.84",CC-300
+JE-00157,2025-02-18,2100 Accrued Liabilities,Reclass,"18,767.04",,CC-300
+JE-00158,2025-02-21,6200 Travel,Year-end adjustment,,"3,875.21",CC-200
+JE-00159,2025-04-22,6200 Travel,Monthly accrual,"5,248.33",,CC-200
+JE-00160,2025-04-21,6100 Office Supplies,Monthly accrual,,"15,104.49",CC-100

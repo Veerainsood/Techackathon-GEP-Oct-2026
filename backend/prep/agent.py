@@ -79,8 +79,14 @@ def validate(plan: PrepPlan, profile: Dict[str, Any]) -> Optional[str]:
             return f"{f.op}: unknown columns {missing}; columns are {sorted(known)}"
         if f.op not in ("flag_duplicates", "drop_exact_duplicates") and not f.columns:
             return f"{f.op} needs at least one column"
-        if f.op == "fill_missing" and f.params.get("method") not in ("median", "mean", "mode", "constant", "ffill"):
-            return "fill_missing needs params.method in median, mean, mode, constant, ffill"
+        if f.op == "fill_missing" and f.params.get("method") not in ("median", "mean", "mode", "constant", "ffill", "product"):
+            return "fill_missing needs params.method in median, mean, mode, constant, ffill, product"
+        if f.op == "fill_missing" and f.params.get("method") == "constant" and any(c in str(f.params.get("value", "")) for c in known):
+            return (f"fill_missing: the constant {f.params.get('value')!r} names a column; constants are written as text. "
+                    "For a value computed from two columns use method 'product' with params.of [column_a, column_b]")
+        if f.op == "fill_missing" and f.params.get("method") == "product" and (
+                len(f.params.get("of") or []) != 2 or any(c not in known for c in f.params.get("of") or [])):
+            return "fill_missing method 'product' needs params.of with exactly two existing columns"
         if f.op == "normalize_values" and not isinstance(f.params.get("mapping"), dict):
             return "normalize_values needs params.mapping {old: new}"
     return None

@@ -1,0 +1,91 @@
+Contract No,Item Code,Description,Unit,Agreed Unit Price,Valid From,Valid To
+CT-24-001,FRT-STD,"Standard freight, per pallet",pallet,74.10,2024-01-25,2026-12-31
+CT-24-001,FRT-EXP,"Express freight, per pallet",pallet,141.51,2024-01-25,2026-12-31
+CT-24-001,WHS-MO,"Warehousing, per month",month,2111.35,2024-01-25,2026-12-31
+CT-24-001,HDL-HR,"Handling, per hour",hour,41.64,2024-01-25,2026-12-31
+CT-24-002,LTP-14,Laptop 14in,unit,1001.60,2024-08-02,2026-12-31
+CT-24-002,MON-27,Monitor 27in,unit,280.71,2024-08-02,2026-12-31
+CT-24-002,DCK-USB,USB-C dock,unit,175.92,2024-08-02,2026-12-31
+CT-24-002,SRV-1U,Rack server 1U,unit,7027.56,2024-08-02,2026-12-31
+CT-24-003,SEAT-STD,"Standard seat, per month",seat-month,39.70,2024-10-25,2026-12-31
+CT-24-003,SEAT-PRO,"Pro seat, per month",seat-month,76.73,2024-10-25,2026-12-31
+CT-24-003,API-10K,"API calls, per 10k",10k calls,11.63,2024-10-25,2026-12-31
+CT-24-003,SUP-PREM,"Premium support, per month",month,1028.59,2024-10-25,2026-12-31
+CT-24-004,SEAT-STD,"Standard seat, per month",seat-month,31.26,2024-08-02,2026-12-31
+CT-24-004,SEAT-PRO,"Pro seat, per month",seat-month,66.40,2024-08-02,2026-12-31
+CT-24-004,API-10K,"API calls, per 10k",10k calls,11.31,2024-08-02,2026-12-31
+CT-24-004,SUP-PREM,"Premium support, per month",month,985.35,2024-08-02,2026-12-31
+CT-24-005,PAY-TXN,"Payment processing, per 1k transactions",1k txn,201.96,2024-04-06,2026-12-31
+CT-24-005,FX-MO,"FX service, per month",month,659.31,2024-04-06,2026-12-31
+CT-24-006,CLN-MO,"Office cleaning, per month",month,4005.66,2024-09-11,2025-09-30
+CT-24-006,MNT-HR,"Maintenance, per hour",hour,63.59,2024-09-11,2026-12-31
+CT-24-006,SUP-BOX,Office supplies box,box,39.66,2024-09-11,2026-12-31
+CT-24-007,SEAT-STD,"Standard seat, per month",seat-month,38.09,2024-05-07,2026-12-31
+CT-24-007,SEAT-PRO,"Pro seat, per month",seat-month,79.48,2024-05-07,2026-12-31
+CT-24-007,API-10K,"API calls, per 10k",10k calls,11.08,2024-05-07,2026-12-31
+CT-24-007,SUP-PREM,"Premium support, per month",month,920.09,2024-05-07,2026-12-31
+CT-24-008,FRT-STD,"Standard freight, per pallet",pallet,79.59,2024-08-17,2026-12-31
+CT-24-008,FRT-EXP,"Express freight, per pallet",pallet,160.17,2024-08-17,2026-12-31
+CT-24-008,WHS-MO,"Warehousing, per month",month,1947.92,2024-08-17,2026-12-31
+CT-24-008,HDL-HR,"Handling, per hour",hour,46.82,2024-08-17,2026-12-31
+CT-24-009,CLN-MO,"Office cleaning, per month",month,4326.70,2024-01-21,2026-12-31
+CT-24-009,MNT-HR,"Maintenance, per hour",hour,56.76,2024-01-21,2026-12-31
+CT-24-009,SUP-BOX,Office supplies box,box,42.73,2024-01-21,2026-12-31
+CT-24-010,LTP-14,Laptop 14in,unit,1177.56,2024-09-11,2026-12-31
+CT-24-010,MON-27,Monitor 27in,unit,315.80,2024-09-11,2026-12-31
+CT-24-010,DCK-USB,USB-C dock,unit,198.36,2024-09-11,2026-12-31
+CT-24-010,SRV-1U,Rack server 1U,unit,7253.79,2024-09-11,2026-12-31
+CT-24-011,CON-DAY,"Consulting, per day",day,1461.79,2024-06-07,2026-12-31
+CT-24-011,WRK-SHP,Workshop,session,5510.06,2024-06-07,2026-12-31
+CT-24-011,RPT-ANL,Analysis report,report,2851.10,2024-06-07,2026-12-31
+CT-24-012,TRV-AIR,Air ticket,ticket,548.33,2024-06-26,2026-12-31
+CT-24-012,TRV-HTL,Hotel night,night,207.59,2024-06-26,2026-12-31
+CT-24-013,CON-DAY,"Consulting, per day",day,1512.66,2024-04-21,2026-12-31
+CT-24-013,WRK-SHP,Workshop,session,4266.25,2024-04-21,2026-12-31
+CT-24-013,RPT-ANL,Analysis report,report,2403.14,2024-04-21,2026-12-31
+CT-24-014,LTP-14,Laptop 14in,unit,1132.47,2024-03-26,2026-12-31
+CT-24-014,MON-27,Monitor 27in,unit,324.75,2024-03-26,2026-12-31
+CT-24-014,DCK-USB,USB-C dock,unit,200.70,2024-03-26,2026-12-31
+CT-24-014,SRV-1U,Rack server 1U,unit,7013.02,2024-03-26,2026-12-31
+CT-24-015,CLN-MO,"Office cleaning, per month",month,4008.30,2024-07-02,2026-12-31
+CT-24-015,MNT-HR,"Maintenance, per hour",hour,62.67,2024-07-02,2026-12-31
+CT-24-015,SUP-BOX,Office supplies box,box,38.61,2024-07-02,2026-12-31
+CT-24-016,PAY-TXN,"Payment processing, per 1k transactions",1k txn,179.26,2024-04-29,2026-12-31
+CT-24-016,FX-MO,"FX service, per month",month,714.56,2024-04-29,2026-12-31
+CT-24-017,CLN-MO,"Office cleaning, per month",month,3839.43,2024-08-02,2026-12-31
+CT-24-017,MNT-HR,"Maintenance, per hour",hour,67.14,2024-08-02,2026-12-31
+CT-24-017,SUP-BOX,Office supplies box,box,39.71,2024-08-02,2026-12-31
+CT-24-018,LTP-14,Laptop 14in,unit,1135.04,2024-01-28,2026-12-31
+CT-24-018,MON-27,Monitor 27in,unit,355.61,2024-01-28,2026-12-31
+CT-24-018,DCK-USB,USB-C dock,unit,204.40,2024-01-28,2026-12-31
+CT-24-018,SRV-1U,Rack server 1U,unit,6746.70,2024-01-28,2026-12-31
+CT-24-019,SEAT-STD,"Standard seat, per month",seat-month,34.81,2024-02-23,2026-12-31
+CT-24-019,SEAT-PRO,"Pro seat, per month",seat-month,72.76,2024-02-23,2026-12-31
+CT-24-019,API-10K,"API calls, per 10k",10k calls,10.89,2024-02-23,2026-12-31
+CT-24-019,SUP-PREM,"Premium support, per month",month,1030.86,2024-02-23,2026-12-31
+CT-24-020,SEAT-STD,"Standard seat, per month",seat-month,30.82,2024-01-27,2026-12-31
+CT-24-020,SEAT-PRO,"Pro seat, per month",seat-month,76.50,2024-01-27,2026-12-31
+CT-24-020,API-10K,"API calls, per 10k",10k calls,12.13,2024-01-27,2026-12-31
+CT-24-020,SUP-PREM,"Premium support, per month",month,1021.22,2024-01-27,2026-12-31
+CT-24-021,CON-DAY,"Consulting, per day",day,1252.39,2024-07-11,2026-12-31
+CT-24-021,WRK-SHP,Workshop,session,4443.25,2024-07-11,2026-12-31
+CT-24-021,RPT-ANL,Analysis report,report,2480.96,2024-07-11,2026-12-31
+CT-24-022,CON-DAY,"Consulting, per day",day,1607.10,2024-09-06,2026-12-31
+CT-24-022,WRK-SHP,Workshop,session,4751.02,2024-09-06,2026-12-31
+CT-24-022,RPT-ANL,Analysis report,report,2587.39,2024-09-06,2026-12-31
+CT-24-023,SEAT-STD,"Standard seat, per month",seat-month,34.78,2024-05-15,2026-12-31
+CT-24-023,SEAT-PRO,"Pro seat, per month",seat-month,79.32,2024-05-15,2026-12-31
+CT-24-023,API-10K,"API calls, per 10k",10k calls,12.06,2024-05-15,2026-12-31
+CT-24-023,SUP-PREM,"Premium support, per month",month,820.41,2024-05-15,2026-12-31
+CT-24-024,ELC-MWH,"Electricity, per MWh",MWh,127.14,2024-01-14,2026-12-31
+CT-24-024,WTR-MO,"Water, per month",month,422.74,2024-01-14,2026-12-31
+CT-24-025,CON-DAY,"Consulting, per day",day,1407.73,2024-05-13,2026-12-31
+CT-24-025,WRK-SHP,Workshop,session,5387.89,2024-05-13,2026-12-31
+CT-24-025,RPT-ANL,Analysis report,report,2487.44,2024-05-13,2026-12-31
+CT-24-006,CLN-MO,"Office cleaning, per month",month,4326.11,2025-09-01,2026-12-31
+CT-25-026,FRT-STD,"Standard freight, per pallet",pallet,68.17,2025-10-01,2026-12-31
+CT-25-026,FRT-EXP,"Express freight, per pallet",pallet,130.19,2025-10-01,2026-12-31
+CT-25-026,WHS-MO,"Warehousing, per month",month,1942.44,2025-10-01,2026-12-31
+CT-25-026,HDL-HR,"Handling, per hour",hour,38.31,2025-10-01,2026-12-31
+CT-25-027,FRT-STD,"Standard freight, per pallet",pallet,70.00,2025-01-01,2026-12-31
+CT-25-027,WHS-MO,"Warehousing, per month",month,1500.00,2025-01-01,2026-12-31
