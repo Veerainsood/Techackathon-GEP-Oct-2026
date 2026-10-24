@@ -138,6 +138,36 @@ def test_api_checks_uploads_and_applies_decisions(engine):
         api.engine = original
 
 
+def test_hubspot_batches_are_planned_by_the_agent_through_the_api(pg_uri, uploads_dir):
+    """The batch endpoint is async; the agent runs its own event loop, so it must not run on the server's loop."""
+    from fastapi.testclient import TestClient
+
+    from backend.api import app as api
+    from backend.engine import build_engine
+    from backend.events.contracts import sign
+
+    def policy(system, messages, tools):
+        return tool("submit_plan", summary="HubSpot contacts checked",
+                    fixes=[{"op": "trim_whitespace", "columns": ["company"], "rationale": "stray spaces"}])
+
+    e = build_engine(llm_providers=(None, None, None, None, ScriptedProvider(policy)))
+    e.consumer.secret = "test-secret"
+    original = api.engine
+    api.engine = lambda: e
+    try:
+        body = json.dumps({"tenant_id": TENANT, "source": "hubspot", "object_type": "contacts",
+                           "records": [{"id": "101", "properties": {"email": "a@x.com", "company": " Contoso Logistics "}},
+                                       {"id": "102", "properties": {"email": "b@x.com", "company": "Woodgrove Bank"}}]}).encode()
+        r = TestClient(api.app).post("/prep/batches", content=body,
+                                     headers={"X-Backend-Signature": sign(body, "test-secret"), "Content-Type": "application/json"})
+        assert r.status_code == 200, r.text
+        job = r.json()
+        assert job["meta"]["mode"] == "llm", job["meta"].get("failure")
+        assert [x["company"] for x in job["records"]] == ["Contoso Logistics", "Woodgrove Bank"]  # fixed in the sandbox
+    finally:
+        api.engine = original
+
+
 @pytest.mark.skipif(os.environ.get("BACKEND_LIVE_SMOKE") != "1", reason="live Daytona smoke test (BACKEND_LIVE_SMOKE=1)")
 def test_live_daytona_sandbox_profiles_and_fixes(engine, monkeypatch):
     from backend.llm.config import _load_dotenv

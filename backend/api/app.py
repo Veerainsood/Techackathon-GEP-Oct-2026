@@ -676,25 +676,33 @@ async def _signed_body(request: Request) -> Dict[str, Any]:
 @app.post("/prep/batches")
 async def prep_batch(request: Request) -> Dict[str, Any]:
     """Check a CRM batch before it is loaded: {tenant_id, source, object_type, records: [{id, properties}]}."""
+    from starlette.concurrency import run_in_threadpool
+
     b = await _signed_body(request)
     try:
-        return engine().prep.check_records(b.get("tenant_id") or "default", b["source"], b["object_type"], b["records"])
+        args = (b.get("tenant_id") or "default", b["source"], b["object_type"], b["records"])
     except KeyError as exc:
         raise HTTPException(400, f"missing field {exc}")
+    # the data-prep agent runs its own event loop and the sandbox call blocks: never on the server's loop
+    return await run_in_threadpool(engine().prep.check_records, *args)
 
 
 @app.post("/prep/batches/released")
 async def prep_released(request: Request) -> List[Dict[str, Any]]:
     """Held records whose fixes have all been decided, ready to load: {tenant_id, source}."""
+    from starlette.concurrency import run_in_threadpool
+
     b = await _signed_body(request)
-    return engine().prep.released_batches(b.get("tenant_id") or "default", b.get("source") or "hubspot")
+    return await run_in_threadpool(engine().prep.released_batches, b.get("tenant_id") or "default", b.get("source") or "hubspot")
 
 
 @app.post("/prep/batches/ack")
 async def prep_ack(request: Request) -> Dict[str, Any]:
     """The producer loaded a released batch: {tenant_id, job_id}."""
+    from starlette.concurrency import run_in_threadpool
+
     b = await _signed_body(request)
-    engine().prep.acknowledge(b.get("tenant_id") or "default", b["job_id"])
+    await run_in_threadpool(engine().prep.acknowledge, b.get("tenant_id") or "default", b["job_id"])
     return {"acknowledged": b["job_id"]}
 
 
