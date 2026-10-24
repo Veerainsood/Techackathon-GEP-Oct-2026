@@ -1,4 +1,4 @@
-import { CheckCircle2, Inbox, Lock, RefreshCw } from 'lucide-react'
+import { CheckCircle2, Inbox, Lock, PauseCircle, PlayCircle, RefreshCw } from 'lucide-react'
 import { useEffect, useState, type ReactNode } from 'react'
 import { boundaries, policies, sources, type Action, type Boundary, type Mode, type Source } from '../data'
 import { api } from '../live/api'
@@ -94,22 +94,21 @@ const settingsTabs = [
 ] as const
 
 const channels = [
-  { name: 'In-app', detail: 'Approvals inbox and notification panel', on: true, locked: true },
-  { name: 'Email', detail: 'meera.rao@northwind.in · instant for approvals', on: true },
-  { name: 'Slack', detail: '#finance-approvals · approve from Slack', on: true },
-  { name: 'Microsoft Teams', detail: 'Finance Ops channel', on: false },
-  { name: 'Daily digest', detail: '8:00 AM · what the agent did overnight', on: true },
-  { name: 'Escalate if unanswered', detail: 'After 4 hours, route to delegate', on: true },
+  { name: 'In-app', detail: 'Approvals inbox and notification panel', available: true },
+  { name: 'Email', detail: 'Instant for approvals', available: false },
+  { name: 'Slack', detail: 'Approve from Slack', available: false },
+  { name: 'Microsoft Teams', detail: 'Finance Ops channel', available: false },
+  { name: 'Daily digest', detail: 'What the agent did overnight', available: false },
+  { name: 'Escalate if unanswered', detail: 'Route to a delegate after a few hours', available: false },
 ]
 
 const errorText = (e: unknown) => (e instanceof Error ? e.message : String(e))
 
-export function SettingsPage() {
+export function SettingsPage({ paused, onTogglePause }: { paused: boolean; onTogglePause: () => void }) {
   const [tab, setTab] = useState<(typeof settingsTabs)[number]['id']>('guardrails')
   const [rows, setRows] = useState<Boundary[]>(LIVE ? [] : boundaries)
   const [loaded, setLoaded] = useState(!LIVE)
   const [guardError, setGuardError] = useState<string | null>(null)
-  const [chan, setChan] = useState(channels)
   const count = (m: Mode) => rows.filter((r) => r.mode === m).length
   const active = settingsTabs.find((t) => t.id === tab)!
 
@@ -159,6 +158,26 @@ export function SettingsPage() {
 
       {tab === 'guardrails' && (
         <>
+      <div className={`mb-4 flex items-center gap-4 rounded-xl border px-4 py-3 ${paused ? 'border-rose-200 bg-rose-50/60' : 'border-line bg-white'}`}>
+        <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${paused ? 'bg-rose-500' : 'animate-pulse bg-emerald-500'}`} />
+        <div className="min-w-0 flex-1">
+          <div className="text-[13px] font-medium">{paused ? 'Autopilot is paused' : 'Autopilot is running'}</div>
+          <div className="text-[11px] text-stone-500">
+            {paused
+              ? 'Nothing is executed on its own. The agent still analyzes and recommends.'
+              : 'Emergency stop pauses every autonomous action at once, whatever the guardrails below say.'}
+          </div>
+        </div>
+        <button
+          onClick={onTogglePause}
+          className={`flex shrink-0 items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition ${
+            paused ? 'bg-brand text-white hover:bg-brand/90' : 'bg-rose-600 text-white hover:bg-rose-700'
+          }`}
+        >
+          {paused ? <PlayCircle size={14} /> : <PauseCircle size={14} />}
+          {paused ? 'Resume autopilot' : 'Emergency stop'}
+        </button>
+      </div>
       {guardError && <div className="mb-3 rounded-lg bg-rose-50 px-3 py-2 text-[12px] text-rose-700">{guardError}</div>}
       {!loaded && <div className="mb-3 text-[12px] text-muted">Loading guardrails…</div>}
       {LIVE && loaded && !rows.length && !guardError && (
@@ -246,19 +265,27 @@ export function SettingsPage() {
 
       {tab === 'notifications' && (
         <div className="overflow-hidden rounded-xl border border-line bg-white text-[13px]">
-          {chan.map((c, i) => (
-            <div key={c.name} className="flex items-center justify-between border-b border-line px-4 py-3 last:border-0">
+          {channels.map((c) => (
+            <div
+              key={c.name}
+              aria-disabled={!c.available}
+              className={`flex items-center justify-between border-b border-line px-4 py-3 last:border-0 ${
+                c.available ? '' : 'pointer-events-none select-none opacity-40'
+              }`}
+            >
               <div>
-                <div className="font-medium">{c.name}</div>
+                <div className="flex items-center gap-1.5 font-medium">
+                  {c.name}
+                  {!c.available && <span className="rounded bg-stone-100 px-1.5 py-0.5 text-[10px] font-medium text-stone-500">Not available</span>}
+                </div>
                 <div className="text-[11px] text-stone-400">{c.detail}</div>
               </div>
-              <button
-                disabled={c.locked}
-                onClick={() => setChan((prev) => prev.map((x, j) => (j === i ? { ...x, on: !x.on } : x)))}
-                className={`relative h-5 w-9 rounded-full transition ${c.on ? 'bg-brand' : 'bg-stone-300'} ${c.locked ? 'opacity-60' : ''}`}
+              <span
+                title={c.available ? 'Always on' : undefined}
+                className={`relative h-5 w-9 cursor-not-allowed rounded-full ${c.available ? 'bg-brand opacity-80' : 'bg-stone-300'}`}
               >
-                <span className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-all ${c.on ? 'left-[18px]' : 'left-0.5'}`} />
-              </button>
+                <span className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow ${c.available ? 'left-[18px]' : 'left-0.5'}`} />
+              </span>
             </div>
           ))}
         </div>
@@ -275,7 +302,7 @@ export function SourcesPage({ items = sources }: { items?: Source[] }) {
           <div key={s.id} className={`rounded-xl border bg-white p-4 ${s.stale ? 'border-rose-200' : 'border-line'}`}>
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <SourceDot color={s.color} letter={s.name[0]} />
+                <SourceDot color={s.color} letter={s.name[0]} kind={s.kind} />
                 <span className="text-[14px] font-medium">{s.name}</span>
               </div>
               {s.stale ? (

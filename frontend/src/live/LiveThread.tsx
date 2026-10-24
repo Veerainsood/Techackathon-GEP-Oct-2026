@@ -483,7 +483,7 @@ export function LiveThread({
                                           src.stale ? 'border-rose-200 bg-rose-50 text-rose-700' : 'border-line bg-stone-50 text-stone-600'
                                         }`}
                                       >
-                                        <SourceDot color={src.color} letter={src.name[0]} />
+                                        <SourceDot color={src.color} letter={src.name[0]} kind={src.kind} />
                                         {src.name}
                                       </span>
                                     ))}

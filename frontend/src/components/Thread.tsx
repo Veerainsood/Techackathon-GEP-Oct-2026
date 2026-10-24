@@ -154,7 +154,7 @@ export function Thread({ query, actions, onOpenAction, onApprove, onFollowUp, pa
                                       src.stale ? 'border-rose-200 bg-rose-50 text-rose-700' : 'border-line bg-stone-50 text-stone-600'
                                     }`}
                                   >
-                                    <SourceDot color={src.color} letter={src.name[0]} />
+                                    <SourceDot color={src.color} letter={src.name[0]} kind={src.kind} />
                                     {src.name}
                                   </span>
                                 ))}
@@ -181,7 +181,7 @@ export function Thread({ query, actions, onOpenAction, onApprove, onFollowUp, pa
                     >
                       <div className="flex -space-x-1">
                         {sources.slice(3).map((s) => (
-                          <SourceDot key={s.id} color={s.color} letter={s.name[0]} />
+                          <SourceDot key={s.id} color={s.color} letter={s.name[0]} kind={s.kind} />
                         ))}
                       </div>
                       <div className="text-[12px] text-muted">
@@ -421,7 +421,7 @@ export function SourceCard({ s, large }: { s: (typeof sources)[number]; large?: 
     <div className={`rounded-xl border bg-white p-2.5 ${s.stale ? 'border-rose-200' : 'border-line'} ${large ? 'p-3.5' : ''}`}>
       <div className="line-clamp-2 text-[12px] font-medium leading-snug">{s.detail}</div>
       <div className="mt-2 flex items-center gap-1.5 text-[11px] text-muted">
-        <SourceDot color={s.color} letter={s.name[0]} />
+        <SourceDot color={s.color} letter={s.name[0]} kind={s.kind} />
         <span className="truncate">{s.name}</span>
         <span className="text-stone-300">·</span>
         <span className={`shrink-0 whitespace-nowrap ${s.stale ? 'font-medium text-rose-600' : ''}`}>{s.freshness}</span>

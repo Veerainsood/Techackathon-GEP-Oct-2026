@@ -6,6 +6,7 @@ from pathlib import Path
 os.environ.setdefault("BACKEND_REASONING_MODE", "offline")
 os.environ.setdefault("BACKEND_SANDBOX", "off")
 os.environ.setdefault("BACKEND_PREP_SANDBOX", "local")  # the shared Daytona sandbox is only used by opt-in live tests
+os.environ.setdefault("BACKEND_SHARED_UPLOADS", "1")  # the fixture files in data/uploads are a source in tests
 
 import psycopg2
 import pytest

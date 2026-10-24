@@ -41,6 +41,7 @@ export interface RuntimeSource {
   name: string
   description?: string
   type: string
+  system?: string
   mode: string
   snapshot_synced_at?: string | null
   collections: number

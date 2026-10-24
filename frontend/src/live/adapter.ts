@@ -45,6 +45,7 @@ export function toSource(s: RuntimeSource, i: number): Source {
     freshness: s.last_sync_at ? ago(s.last_sync_at) : s.snapshot_synced_at ? ago(s.snapshot_synced_at) : 'live connection',
     stale: BAD_SYNC.has(s.sync_status),
     color: PALETTE[i % PALETTE.length],
+    kind: s.system,
   }
 }
 
@@ -59,6 +60,7 @@ export function manifestSource(sid: string, m: Record<string, unknown>, i: numbe
     freshness: m.last_sync_at ? ago(String(m.last_sync_at)) : 'live connection',
     stale: BAD_SYNC.has(String(m.sync_status ?? '')),
     color: PALETTE[i % PALETTE.length],
+    kind: known?.system,
   }
 }
 

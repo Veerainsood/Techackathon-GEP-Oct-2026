@@ -76,7 +76,7 @@ export function ActionDrawer({ action, onClose, onApprove, onReject }: Props) {
                     const s = sources.find((x) => x.id === id)!
                     return (
                       <span key={id} className="flex items-center gap-1.5 rounded-lg border border-line bg-stone-50 px-2 py-1 text-[12px]">
-                        <SourceDot color={s.color} letter={s.name[0]} />
+                        <SourceDot color={s.color} letter={s.name[0]} kind={s.kind} />
                         {s.name}
                         <span className={s.stale ? 'text-rose-600' : 'text-stone-400'}>{s.freshness}</span>
                       </span>

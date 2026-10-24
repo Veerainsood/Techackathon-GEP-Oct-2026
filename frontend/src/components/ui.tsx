@@ -1,5 +1,6 @@
 import { AlertTriangle, CheckCircle2, CircleDashed, Clock, FlaskConical, Lightbulb, OctagonX, XCircle } from 'lucide-react'
 import type { ReactNode } from 'react'
+import { siHubspot, siPostgresql } from 'simple-icons'
 import { sources, type ActionStatus, type Source } from '../data'
 
 const statusMap: Record<ActionStatus, { label: string; cls: string; icon: ReactNode }> = {
@@ -45,7 +46,16 @@ export function Cite({ ids, list = sources }: { ids: number[]; list?: Source[] }
   )
 }
 
-export function SourceDot({ color, letter }: { color: string; letter: string }) {
+const LOGOS: Record<string, { title: string; path: string; hex: string }> = { postgres: siPostgresql, hubspot: siHubspot }
+
+export function SourceDot({ color, letter, kind }: { color: string; letter: string; kind?: string }) {
+  const logo = kind ? LOGOS[kind] : undefined
+  if (logo)
+    return (
+      <svg viewBox="0 0 24 24" role="img" aria-label={logo.title} className="h-4 w-4 shrink-0">
+        <path d={logo.path} fill={`#${logo.hex}`} />
+      </svg>
+    )
   return (
     <span className={`inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-[4px] text-[9px] font-bold text-white ${color}`}>
       {letter}

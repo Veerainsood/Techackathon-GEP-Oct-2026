@@ -8,8 +8,6 @@ import {
   History,
   PanelLeftClose,
   PanelLeftOpen,
-  PauseCircle,
-  PlayCircle,
   Plus,
   ScrollText,
   Settings,
@@ -25,7 +23,6 @@ interface Props {
   onNew: () => void
   pendingCount: number
   paused: boolean
-  onTogglePause: () => void
   hasThread: boolean
   recent?: string[]
   onRecent?: (q: string, index: number) => void
@@ -43,7 +40,6 @@ export function Sidebar({
   onNew,
   pendingCount,
   paused,
-  onTogglePause,
   hasThread,
   recent,
   onRecent,
@@ -215,20 +211,6 @@ export function Sidebar({
 
       {collapsed ? (
         <div className="mt-auto flex flex-col items-center gap-3">
-          <button
-            onClick={onTogglePause}
-            title={paused ? 'Resume agent' : 'Emergency stop'}
-            className={`relative flex h-9 w-9 items-center justify-center rounded-lg transition ${
-              paused ? 'bg-brand text-white hover:bg-brand/90' : 'bg-rose-50 text-rose-700 hover:bg-rose-100'
-            }`}
-          >
-            {paused ? <PlayCircle size={17} /> : <PauseCircle size={17} />}
-            <span
-              className={`absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full border-2 border-[#f5f4f0] ${
-                paused ? 'bg-rose-500' : 'bg-emerald-500'
-              }`}
-            />
-          </button>
           <div
             title="Meera Rao · CFO"
             className="flex h-8 w-8 items-center justify-center rounded-full bg-stone-800 text-xs font-medium text-white"
@@ -246,15 +228,6 @@ export function Sidebar({
             <p className="mt-1 text-[11px] leading-snug text-muted">
               {paused ? 'Paused. Agent will only analyze and recommend.' : watchSummary ?? 'Autopilot on · 3 standing goals · 6 sources watched'}
             </p>
-            <button
-              onClick={onTogglePause}
-              className={`mt-2 flex w-full items-center justify-center gap-1.5 rounded-lg py-1.5 text-xs font-medium transition ${
-                paused ? 'bg-brand text-white hover:bg-brand/90' : 'bg-rose-50 text-rose-700 hover:bg-rose-100'
-              }`}
-            >
-              {paused ? <PlayCircle size={14} /> : <PauseCircle size={14} />}
-              {paused ? 'Resume agent' : 'Emergency stop'}
-            </button>
           </div>
           <div className="flex items-center gap-2.5 px-1">
             <div className="flex h-8 w-8 items-center justify-center rounded-full bg-stone-800 text-xs font-medium text-white">MR</div>
