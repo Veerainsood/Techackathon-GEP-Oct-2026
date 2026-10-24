@@ -62,6 +62,13 @@ def test_conversations_are_listed_and_private(client):
     assert c.post("/ask", json={"question": "x", "conversation_id": "conv-nope"}, headers=H).status_code == 404
 
 
+def test_conversation_deleted_while_answering_drops_the_late_reply(client):
+    _c, e, _seen = client
+    cid = e.conversations.create("default", "conv-tester", "gone")
+    e.conversations.delete("default", "conv-tester", cid)
+    assert e.conversations.add_message(cid, "assistant", "late reply") is None
+
+
 def test_attached_file_survives_a_lost_workspace(client):
     c, e, _seen = client
     csv = b"order_id,region,amount\nO1,AMER,100\nO2,EMEA,250\n"

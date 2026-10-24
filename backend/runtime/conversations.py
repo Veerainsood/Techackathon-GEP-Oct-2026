@@ -11,6 +11,7 @@ import json
 import uuid
 from typing import Any, Dict, List, Optional
 
+import psycopg2.errors
 from psycopg2.extras import Json
 from psycopg2.pool import ThreadedConnectionPool
 
@@ -95,10 +96,14 @@ class ConversationStore:
                       WHERE conversation_id = %s""",
                    (workspace_id, Json(files), Json([f["file_id"] for f in files]), conversation_id))
 
-    def add_message(self, conversation_id: str, role: str, content: str, meta: Optional[Dict[str, Any]] = None) -> str:
+    def add_message(self, conversation_id: str, role: str, content: str, meta: Optional[Dict[str, Any]] = None) -> Optional[str]:
+        """Returns the message id, or None when the conversation was deleted meanwhile (e.g. while it was answering)."""
         mid = f"msg-{uuid.uuid4().hex[:12]}"
-        self._exec("INSERT INTO backend_runtime.messages (message_id, conversation_id, role, content, meta) VALUES (%s, %s, %s, %s, %s)",
-                   (mid, conversation_id, role, content, Json(meta or {}, dumps=lambda o: json.dumps(o, default=str))))
+        try:
+            self._exec("INSERT INTO backend_runtime.messages (message_id, conversation_id, role, content, meta) VALUES (%s, %s, %s, %s, %s)",
+                       (mid, conversation_id, role, content, Json(meta or {}, dumps=lambda o: json.dumps(o, default=str))))
+        except psycopg2.errors.ForeignKeyViolation:
+            return None
         self._exec("UPDATE backend_runtime.conversations SET updated_at = now() WHERE conversation_id = %s", (conversation_id,))
         return mid
 

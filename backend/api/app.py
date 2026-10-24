@@ -52,7 +52,7 @@ def result_payload(state: Dict[str, Any], question: str, include_candidates: boo
            "adjudicator": d.get("llm_verdict") or {}, "verification_actions": d.get("verification_actions") or [],
            "manifest": state.get("manifest"), "consistency": state.get("consistency"), "answer_id": state.get("answer_id"),
            "artifacts": state.get("artifacts", []), "exports": state.get("exports", []), "trace": state["trace"],
-           "total_ms": state["total_ms"], "retried_from": state.get("retried_from"),
+           "total_ms": state["total_ms"], "retried_from": state.get("retried_from"), "detail": state.get("detail"),
            "intent": {k: (state.get("intent") or {}).get(k) for k in ("route", "reason", "mode", "options", "brief", "queried",
                                                                        "standalone_question")},
            "candidates_summary": {c["agent_name"]: {"mode": c["reasoning_mode"], "value": c["structured_value"], "sql": c["query_or_plan"],
@@ -130,22 +130,39 @@ def _conversation(req: AskRequest, ctx: AccessContext) -> Dict[str, Any]:
     return {"conversation_id": cid, "workspace_id": ws_id, "history": store.history(cid) if conv else []}
 
 
+def _record_question(conv: Dict[str, Any], question: str) -> None:
+    """Stored when asked, so a conversation reopened mid-answer shows the question as still being answered."""
+    engine().conversations.add_message(conv["conversation_id"], "user", question)
+
+
+def _record_failure(conv: Dict[str, Any], error: str) -> None:
+    engine().conversations.add_message(conv["conversation_id"], "assistant", f"The request could not be completed: {error[:300]}",
+                                       {"route": "error"})
+
+
 def _record_turn(conv: Dict[str, Any], question: str, payload: Dict[str, Any]) -> None:
     store = engine().conversations
-    store.add_message(conv["conversation_id"], "user", question)
+    detail = payload.get("detail") or {}
     store.add_message(conv["conversation_id"], "assistant", payload["answer"],
-                      {k: payload.get(k) for k in ("request_id", "answer_id", "verification_status", "selected_path")}
-                      | {"route": (payload.get("intent") or {}).get("route")})
+                      {k: payload.get(k) for k in ("request_id", "answer_id", "verification_status", "selected_path", "total_ms")}
+                      | {"route": (payload.get("intent") or {}).get("route"),
+                         "data": (payload.get("data") or [])[:50] if isinstance(payload.get("data"), list) else [],
+                         "detail": {k: detail.get(k) for k in ("columns", "rows", "row_count", "limited")} if detail else None})
 
 
 @app.post("/ask")
 def ask(req: AskRequest, ctx: AccessContext = Depends(access)) -> Dict[str, Any]:
     conv = _conversation(req, ctx)
+    _record_question(conv, req.question)
     try:
         state = engine().ask(req.question, ctx=_scoped(req, ctx), mode=req.mode, use_memory=req.use_memory,
                              export_formats=req.export_formats, workspace_id=conv["workspace_id"], history=conv["history"])
     except AccessDenied as exc:
+        _record_failure(conv, str(exc))
         raise HTTPException(403, str(exc))
+    except Exception as exc:
+        _record_failure(conv, f"{type(exc).__name__}: {exc}")
+        raise
     payload = result_payload(state, req.question, req.include_candidates) | {k: conv[k] for k in ("conversation_id", "workspace_id")}
     _record_turn(conv, req.question, payload)
     return payload
@@ -262,6 +279,7 @@ def ask_stream(req: AskRequest, ctx: AccessContext = Depends(access)):
 
     q: "queue.Queue" = queue.Queue()
     conv = _conversation(req, ctx)
+    _record_question(conv, req.question)
     q.put({"event": "conversation", "conversation_id": conv["conversation_id"], "workspace_id": conv["workspace_id"]})
 
     def work():
@@ -273,6 +291,7 @@ def ask_stream(req: AskRequest, ctx: AccessContext = Depends(access)):
             _record_turn(conv, req.question, payload)
             q.put({"event": "result", "result": payload})
         except Exception as exc:
+            _record_failure(conv, f"{type(exc).__name__}: {exc}")
             q.put({"event": "error", "error": f"{type(exc).__name__}: {exc}"})
         q.put(None)
 

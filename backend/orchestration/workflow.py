@@ -59,6 +59,7 @@ class BackendState(TypedDict, total=False):
     consistency: Dict[str, Any]
     answer_id: str
     artifacts: List[Dict[str, Any]]
+    detail: Dict[str, Any]
     trace: Annotated[List[Dict[str, Any]], operator.add]
 
 
@@ -424,6 +425,7 @@ class DualPathWorkflow:
         from backend.gateway.sql_guard import analyze
         from backend.runtime.versions import check_consistency
 
+        detail = None if direct else self._detail(ctx, d)
         consistency = check_consistency(self.e, ctx, state.get("manifest") or {})
         leases = self._leases.pop(state["request_id"], None)
         if leases:
@@ -453,11 +455,47 @@ class DualPathWorkflow:
                                                                                 "winning_query", "agreement_status")})
         out = {"persisted": persisted, "exports": exports, "consistency": consistency, "artifacts": artifacts,
                "trace": _t("finalize", t0, persisted=persisted, consistency=consistency["status"], artifacts=len(artifacts))}
+        if detail:
+            out["detail"] = detail
         if answer_id:
             out["answer_id"] = answer_id
         if consistency["warnings"]:
             out["decision"] = d
         return out
+
+    def _detail(self, ctx: AccessContext, d: Dict[str, Any], limit: int = 50) -> Optional[Dict[str, Any]]:
+        """For a single-number answer over filtered rows (e.g. COUNT/SUM ... WHERE ...), fetch the rows behind it.
+
+        The aggregate query is rewritten to select the primary table's rows with the same FROM/JOIN/WHERE, and run
+        read-only through the gateway (same pinned snapshot). Grouped or multi-row answers already carry their data.
+        """
+        import sqlglot
+        from sqlglot import exp
+
+        rows = d.get("final_structured_data") or []
+        if not d.get("winning_query") or len(rows) != 1 or len(rows[0]) != 1:
+            return None
+        try:
+            dialect = self.e.gateway.adapter(ctx, d["winning_source_id"]).dialect
+            tree = sqlglot.parse_one(d["winning_query"], read=dialect)
+            if not isinstance(tree, exp.Select) or tree.args.get("group") or not tree.find(exp.AggFunc):
+                return None
+            source = tree.args.get("from_") or tree.args.get("from")  # the key name differs across sqlglot versions
+            table = source.this if source is not None else None
+            if not isinstance(table, exp.Table):
+                return None
+            star = exp.Star() if not tree.args.get("joins") else exp.Column(this=exp.Star(), table=exp.to_identifier(table.alias_or_name))
+            q = tree.copy()
+            for key in ("order", "limit", "having", "offset"):
+                q.set(key, None)
+            q.set("expressions", [star])
+            sql = q.limit(limit).sql(dialect=dialect)
+            res = self.e.gateway.execute_query(ctx, d["winning_source_id"], sql, max_rows=limit)
+        except Exception:
+            return None
+        if not res.succeeded or not res.rows:
+            return None
+        return {"query": sql, "columns": res.columns, "rows": res.rows[:limit], "row_count": len(res.rows), "limited": len(res.rows) >= limit}
 
     # ------------------------------------------------------------------ graph
     def _build(self) -> StateGraph:

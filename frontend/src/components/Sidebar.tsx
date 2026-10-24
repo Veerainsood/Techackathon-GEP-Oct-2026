@@ -1,6 +1,8 @@
 import {
   Bot,
+  CircleDashed,
   Compass,
+  Trash2,
   Inbox,
   Database,
   History,
@@ -28,11 +30,28 @@ interface Props {
   recent?: string[]
   onRecent?: (q: string, index: number) => void
   watchSummary?: string
+  activeIndex?: number // the open chat
+  runningIndex?: number // the chat that is answering right now
+  onDeleteRecent?: (index: number) => void
 }
 
 const STORAGE_KEY = 'finsight.sidebar.collapsed'
 
-export function Sidebar({ view, onNavigate, onNew, pendingCount, paused, onTogglePause, hasThread, recent, onRecent, watchSummary }: Props) {
+export function Sidebar({
+  view,
+  onNavigate,
+  onNew,
+  pendingCount,
+  paused,
+  onTogglePause,
+  hasThread,
+  recent,
+  onRecent,
+  watchSummary,
+  activeIndex,
+  runningIndex,
+  onDeleteRecent,
+}: Props) {
   const [collapsed, setCollapsed] = useState(() => localStorage.getItem(STORAGE_KEY) === '1')
 
   useEffect(() => {
@@ -161,16 +180,34 @@ export function Sidebar({ view, onNavigate, onNew, pendingCount, paused, onToggl
       {!collapsed && (
         <>
           <div className="mt-6 px-3 text-[11px] font-medium uppercase tracking-wider text-stone-400">Library</div>
-          <div className="mt-1 flex flex-col gap-0.5">
+          <div className="mt-1 flex max-h-[45vh] flex-col gap-0.5 overflow-y-auto scrollbar-thin">
             {library.map((t, i) => (
-              <button
+              <div
                 key={`${t}-${i}`}
                 onClick={() => (onRecent ? onRecent(t, i) : i === 0 && hasThread && onNavigate('thread'))}
-                className="flex items-center gap-2 truncate rounded-lg px-3 py-1.5 text-left text-[13px] text-stone-600 hover:bg-white/60"
+                className={`group flex cursor-pointer items-center gap-2 rounded-lg px-3 py-1.5 text-left text-[13px] ${
+                  activeIndex === i ? 'bg-white font-medium text-ink shadow-sm' : 'text-stone-600 hover:bg-white/60'
+                }`}
               >
-                <History size={13} className="shrink-0 text-stone-400" />
-                <span className="truncate">{t}</span>
-              </button>
+                {runningIndex === i ? (
+                  <CircleDashed size={13} className="shrink-0 animate-spin text-brand" />
+                ) : (
+                  <History size={13} className="shrink-0 text-stone-400" />
+                )}
+                <span className="min-w-0 flex-1 truncate">{t}</span>
+                {onDeleteRecent && (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      onDeleteRecent(i)
+                    }}
+                    title="Delete chat"
+                    className="hidden shrink-0 rounded p-0.5 text-stone-400 hover:bg-stone-100 hover:text-rose-600 group-hover:block"
+                  >
+                    <Trash2 size={12} />
+                  </button>
+                )}
+              </div>
             ))}
           </div>
         </>

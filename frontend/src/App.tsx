@@ -41,6 +41,8 @@ export default function App() {
   const [turns, setTurns] = useState<Turn[]>([]) // earlier turns of the open conversation
   const [lastDone, setLastDone] = useState<Turn | null>(null) // the current question, once answered
   const [conversations, setConversations] = useState<ConversationRow[]>([])
+  const [runningId, setRunningId] = useState<string | null>(null) // chat streaming in this view ('new' before it has an id)
+  const [backgroundId, setBackgroundId] = useState<string | null>(null) // chat left while still answering
   const liveSources = useMemo(() => live.sources.map(toSource), [live.sources])
   const liveFeed = useMemo(() => toFeed(live.events, live.investigations), [live.events, live.investigations])
   const feed = LIVE ? liveFeed : demoFeed
@@ -107,7 +109,44 @@ export default function App() {
   useEffect(() => {
     if (!LIVE) return
     api.conversations().then(setConversations).catch(() => undefined)
-  }, [lastDone, conversationId])
+  }, [lastDone, conversationId, runningId, backgroundId])
+
+  const turnsFrom = (messages: { role: string; content: string; meta: Record<string, unknown> }[]): Turn[] => {
+    const pairs: Turn[] = []
+    for (let i = 0; i < messages.length; i++) {
+      if (messages[i].role !== 'user') continue
+      const reply = messages[i + 1]?.role === 'assistant' ? messages[i + 1] : null
+      const meta = (reply?.meta ?? {}) as Record<string, unknown>
+      const route = meta.route as string | undefined
+      pairs.push({
+        question: messages[i].content,
+        answer: reply?.content ?? '',
+        data: (meta.data as Turn['data']) ?? [],
+        detail: (meta.detail as Turn['detail']) ?? null,
+        verified: route === 'investigate' ? meta.verification_status === 'verified_fact' : undefined,
+        totalMs: route === 'investigate' ? (meta.total_ms as number | undefined) : undefined,
+        route,
+      })
+    }
+    return pairs
+  }
+
+  // A chat left while it was still answering keeps answering on the server; pick up the reply when it is stored.
+  useEffect(() => {
+    if (!LIVE || !backgroundId) return
+    const t = setInterval(async () => {
+      try {
+        const { messages } = await api.conversation(backgroundId)
+        if (messages.length && messages[messages.length - 1].role === 'assistant') {
+          if (conversationId === backgroundId && !request) setTurns(turnsFrom(messages))
+          setBackgroundId(null)
+        }
+      } catch {
+        setBackgroundId(null)
+      }
+    }, 4000)
+    return () => clearInterval(t)
+  }, [backgroundId, conversationId, request])
 
   // Follow-up in the open conversation.
   const ask = (q: string) => {
@@ -124,6 +163,7 @@ export default function App() {
   const askNew = (q: string) => {
     setQuery(q)
     if (LIVE) {
+      leaveRunningChat()
       setTurns([])
       setLastDone(null)
       setConversationId(null)
@@ -132,7 +172,13 @@ export default function App() {
     setView('thread')
   }
 
+  const leaveRunningChat = () => {
+    if (runningId && runningId !== 'new') setBackgroundId(runningId)
+    setRunningId(null)
+  }
+
   const newConversation = () => {
+    leaveRunningChat()
     setConversationId(null)
     setTurns([])
     setLastDone(null)
@@ -145,15 +191,12 @@ export default function App() {
   const openConversation = async (index: number) => {
     const row = conversations[index]
     if (!row) return
+    if (row.conversation_id === conversationId && request) return // already open and answering
     try {
       const { conversation, messages } = await api.conversation(row.conversation_id)
-      const pairs: Turn[] = []
-      for (let i = 0; i < messages.length; i++) {
-        if (messages[i].role === 'user')
-          pairs.push({ question: messages[i].content, answer: messages[i + 1]?.role === 'assistant' ? messages[i + 1].content : '' })
-      }
+      if (row.conversation_id !== runningId) leaveRunningChat()
       setConversationId(row.conversation_id)
-      setTurns(pairs)
+      setTurns(turnsFrom(messages))
       setLastDone(null)
       setRequest(null)
       setWorkspace(conversation.workspace_id ?? null)
@@ -161,6 +204,19 @@ export default function App() {
       setView('thread')
     } catch (err) {
       setToast(`Could not open conversation: ${err instanceof Error ? err.message : String(err)}`)
+    }
+  }
+
+  const deleteConversation = async (index: number) => {
+    const row = conversations[index]
+    if (!row) return
+    try {
+      await api.deleteConversation(row.conversation_id)
+      setConversations((list) => list.filter((c) => c.conversation_id !== row.conversation_id))
+      if (row.conversation_id === conversationId) newConversation()
+      if (row.conversation_id === backgroundId) setBackgroundId(null)
+    } catch (err) {
+      setToast(`Could not delete: ${err instanceof Error ? err.message : String(err)}`)
     }
   }
 
@@ -250,8 +306,11 @@ export default function App() {
           setToast(paused ? 'Agent resumed' : 'Emergency stop: autonomous execution paused')
         }}
         hasThread={!!query}
-        recent={LIVE ? conversations.slice(0, 8).map((c) => c.title) : undefined}
+        recent={LIVE ? conversations.map((c) => c.title) : undefined}
         onRecent={LIVE ? (_title, index) => openConversation(index) : undefined}
+        activeIndex={LIVE && view === 'thread' ? conversations.findIndex((c) => c.conversation_id === conversationId) : undefined}
+        runningIndex={LIVE ? conversations.findIndex((c) => c.conversation_id === (runningId ?? backgroundId)) : undefined}
+        onDeleteRecent={LIVE ? deleteConversation : undefined}
         watchSummary={LIVE ? `Autopilot on · ${live.sources.length} sources watched · ${live.answers.length} saved answers` : undefined}
       />
       <main className="relative min-w-0 flex-1">
@@ -297,8 +356,10 @@ export default function App() {
               history={turns}
               onConversation={(id, ws) => {
                 setConversationId(id)
+                setRunningId(id)
                 if (ws) setWorkspace(ws)
               }}
+              onRunning={(running) => setRunningId(running ? (conversationId ?? 'new') : null)}
               onComplete={setLastDone}
               attachments={attachments}
               onFollowUp={ask}

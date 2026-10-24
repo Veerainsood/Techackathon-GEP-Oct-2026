@@ -195,6 +195,7 @@ export const api = {
   answers: () => request<AnswerRow[]>('/runtime/answers'),
   files: () => request<StoredFile[]>('/files'),
   conversations: () => request<ConversationRow[]>('/conversations'),
+  deleteConversation: (id: string) => request<{ deleted: string }>(`/conversations/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   // Every upload is checked by the data-prep agent in the sandbox before questions use it.
   prepFiles: (fileIds: string[]) =>
     request<PrepJob[]>('/prep/files', { method: 'POST', headers: json, body: JSON.stringify({ file_ids: fileIds }) }),

@@ -43,6 +43,9 @@ def test_data_question_still_runs_both_agents(offline_engine):
     started = {e["node"] for e in events if e.get("event") == "node" and e["status"] == "started"}
     finished = {e["node"] for e in events if e.get("event") == "node" and e["status"] == "finished"}
     assert started == finished  # a node's own status field (e.g. agreement) never hides that it finished
+    detail = st["detail"]  # the rows behind the single number
+    assert detail["row_count"] == 13 and "settlement_status" in detail["columns"]
+    assert all(r["settlement_status"] == "OVERDUE" for r in detail["rows"])
     assert next(e for e in events if e.get("node") == "adjudicate" and e["status"] == "finished")["outcome"] == "exact_match"
 
 
