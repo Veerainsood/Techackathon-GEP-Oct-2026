@@ -335,7 +335,8 @@ class PolicyEngine:
                 lo = max((p["min_value"] for p in lows), default=None)
                 hi = min((p["max_value"] for p in highs), default=None)
                 if v is not None and ((lo is not None and v < lo) or (hi is not None and v > hi)):
-                    violations.append({"variable": var, "value": v, "min": lo, "max": hi, "policies": [p["name"] for p in lows + highs]})
+                    violations.append({"variable": var, "value": v, "min": lo, "max": hi,
+                                       "policies": list(dict.fromkeys(p["name"] for p in lows + highs))})  # a min-and-max policy once
                 for p in ps:
                     if p["hitl_above"] is not None and v is not None and v > p["hitl_above"]:
                         hitl.append({"variable": var, "value": v, "policy": p["name"]})
