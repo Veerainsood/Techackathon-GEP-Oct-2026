@@ -71,6 +71,7 @@ def result_payload(state: Dict[str, Any], question: str, include_candidates: boo
            "manifest": state.get("manifest"), "consistency": state.get("consistency"), "answer_id": state.get("answer_id"),
            "artifacts": state.get("artifacts", []), "exports": state.get("exports", []), "trace": state["trace"],
            "total_ms": state["total_ms"], "retried_from": state.get("retried_from"), "detail": state.get("detail"),
+           "charts": state.get("charts"),
            "intent": {k: (state.get("intent") or {}).get(k) for k in ("route", "reason", "mode", "options", "brief", "queried",
                                                                        "standalone_question")},
            "candidates_summary": {c["agent_name"]: {"mode": c["reasoning_mode"], "value": c["structured_value"], "sql": c["query_or_plan"],
@@ -166,7 +167,8 @@ def _record_turn(conv: Dict[str, Any], question: str, payload: Dict[str, Any]) -
                       {k: payload.get(k) for k in ("request_id", "answer_id", "verification_status", "selected_path", "total_ms")}
                       | {"route": (payload.get("intent") or {}).get("route"),
                          "data": (payload.get("data") or [])[:50] if isinstance(payload.get("data"), list) else [],
-                         "detail": {k: detail.get(k) for k in ("columns", "rows", "row_count", "limited")} if detail else None})
+                         "detail": {k: detail.get(k) for k in ("columns", "rows", "row_count", "limited")} if detail else None,
+                         "charts": payload.get("charts")})
 
 
 @app.post("/ask")
