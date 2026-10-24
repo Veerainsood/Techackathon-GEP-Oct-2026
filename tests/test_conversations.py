@@ -46,7 +46,8 @@ def test_follow_up_uses_history_and_a_standalone_question(client):
     second = c.post("/ask", json={"question": "and how many of those are overdue?", "use_memory": False,
                                   "conversation_id": cid}, headers=H).json()
     assert second["conversation_id"] == cid
-    assert "hi, tell me which invoices are overdue" in seen[-1]  # the earlier turn reached the intent agent
+    routing = [s for s in seen if "and how many of those are overdue" in s]  # chart planning also uses this model
+    assert routing and "hi, tell me which invoices are overdue" in routing[-1]  # the earlier turn reached the intent agent
     assert second["intent"]["standalone_question"] == "How many invoices have settlement status OVERDUE?"
     assert second["question"] == "and how many of those are overdue?"  # the user's words are what the UI shows
     assert "13" in second["answer"] and second["verification_status"] == "verified_fact"

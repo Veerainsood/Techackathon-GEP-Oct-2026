@@ -1,6 +1,6 @@
 // Live version of components/Thread.tsx: same layout and styling, every value comes from /ask/stream events.
 // The conversation is one scrollable thread; how the answer was produced (agents, models, cross-checks) stays internal.
-import { AlertTriangle, Check, ChevronDown, ChevronRight, Copy, Download, Layers, ListChecks, RefreshCw, Share2, ThumbsUp, Zap } from 'lucide-react'
+import { Check, ChevronDown, ChevronRight, Copy, Download, Layers, ListChecks, RefreshCw, Share2, ThumbsUp, Zap } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Bar, BarChart, CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { Composer } from '../components/Composer'
@@ -196,9 +196,7 @@ function AnswerBlock({ turn }: { turn: Turn }) {
               <Check size={13} strokeWidth={2.5} /> Verified against the live data
             </span>
           ) : (
-            <span className="flex items-center gap-1 text-amber-700">
-              <AlertTriangle size={12} /> Not fully verified, review before relying on it
-            </span>
+            <span className="text-muted">From the live data</span>
           )}
           {turn.totalMs !== undefined && <span className="text-muted">· {secs(turn.totalMs)}</span>}
         </div>
