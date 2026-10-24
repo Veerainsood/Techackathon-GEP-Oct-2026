@@ -156,12 +156,14 @@ class PrepService:
         return {"data": box.download(box.path(f"out/{out_name}")), "report": json.loads(box.download(box.path("out/report.json")))}
 
     # ------------------------------------------------------------------ public
-    def check_file(self, tenant: str, owner: str, file_id: str, on_event: Optional[Callable[[Dict[str, Any]], None]] = None) -> Dict[str, Any]:
+    def check_file(self, tenant: str, owner: str, file_id: str, on_event: Optional[Callable[[Dict[str, Any]], None]] = None,
+                   source: str = "upload") -> Dict[str, Any]:
+        """``source`` "upload" (a user's file: destructive fixes need approval) or a CRM such as "hubspot" (everything applies)."""
         rec = self.e.files.get(tenant, owner, file_id, kind="upload")
         data = self.e.files.read_bytes(rec)
-        job_id = self.store.create(tenant, owner, "upload", rec.filename, file_id)
+        job_id = self.store.create(tenant, owner, source, rec.filename, file_id)
         try:
-            out = self._check(job_id, rec.filename, data, rec.sha256, source="upload", on_event=on_event)
+            out = self._check(job_id, rec.filename, data, rec.sha256, source=source, on_event=on_event)
             checked = self.e.files.save_bytes(tenant, owner, _checked_name(rec.filename), out["data"], kind="upload",
                                               run_id=job_id, origin=f"prep:{job_id}:from:{file_id}")
             status = "awaiting_approval" if out["pending"] else "done"

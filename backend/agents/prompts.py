@@ -132,7 +132,7 @@ Rules:
   another column, or the median for quantities. Never fill identifiers, emails, names, job titles, phone numbers or other
   facts about a specific person or document; leave those missing and report them in a finding. A blank optional term
   usually means "none": never fill discount terms, escalations, hold or block reasons, PO numbers, end dates, refund or
-  credit columns, or last-login dates.
+  credit columns, paid amounts or payment dates (blank = not paid yet), or last-login dates.
 - Every fix needs a rationale a business user understands. Findings describe what you noticed (including problems you
   are not fixing).
 - Fixes, including fills and mappings, are applied without asking anyone. CRM batches are never reduced: drop operations

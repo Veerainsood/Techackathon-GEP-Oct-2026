@@ -172,6 +172,8 @@ export interface LeakageCase {
   status: 'open' | 'awaiting_approval' | 'executed' | 'dismissed' | 'resolved'
   recovery: { request_id?: string; status?: string; request_type?: string } | null
   first_seen: string
+  source?: string
+  source_label?: string | null
 }
 export interface LeakageSummary {
   cases: number

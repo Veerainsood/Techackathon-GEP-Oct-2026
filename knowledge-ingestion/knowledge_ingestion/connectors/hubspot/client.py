@@ -25,6 +25,19 @@ class HubSpotError(RuntimeError):
     """A HubSpot API call failed."""
 
 
+class HubSpotScopeMissing(HubSpotError):
+    """The private app's token lacks a scope the call needs (e.g. files)."""
+
+
+@dataclass
+class HubSpotFile:
+    id: str
+    name: str
+    extension: str
+    updated_at: str
+    size: int = 0
+
+
 @dataclass
 class HubSpotRecord:
     id: str
@@ -83,6 +96,59 @@ class HubSpotClient:
             after = payload.get("paging", {}).get("next", {}).get("after")
             if not after:
                 return records
+
+    def files_updated_since(self, since_ms: int, extensions: tuple[str, ...] = ("csv", "xlsx", "xls")) -> list[HubSpotFile]:
+        """Files in HubSpot's file manager updated at or after `since_ms`, oldest first (read-only; needs the files scope)."""
+        from datetime import datetime, timezone
+
+        since_iso = datetime.fromtimestamp(since_ms / 1000, tz=timezone.utc).isoformat().replace("+00:00", "Z")
+        files: list[HubSpotFile] = []
+        after: str | None = None
+        filtered = True
+        while True:
+            params: dict[str, str] = {"limit": str(PAGE_SIZE), "sort": "updatedAt"}
+            if filtered:
+                params["updatedAtGte"] = since_iso
+            if after:
+                params["after"] = after
+            response = self._http.get("/files/v3/files/search", params=params)
+            if response.status_code == 403:
+                raise HubSpotScopeMissing(f"HubSpot files need the 'files' scope on the private app: {response.text[:300]}")
+            if response.status_code == 400 and filtered and after is None:
+                filtered = False  # this portal rejects the date filter: list everything and filter here
+                continue
+            if response.status_code != 200:
+                raise HubSpotError(f"HubSpot files search failed: {response.status_code} {response.reason_phrase}\n{response.text}")
+            payload = response.json()
+            for item in payload.get("results", []):
+                ext = str(item.get("extension") or str(item.get("name", "")).rsplit(".", 1)[-1]).lower()
+                updated = str(item.get("updatedAt") or item.get("createdAt") or "")
+                if item.get("archived") or ext not in extensions:
+                    continue
+                name = str(item.get("name") or item["id"])
+                if not name.lower().endswith("." + ext):
+                    name = f"{name}.{ext}"
+                files.append(HubSpotFile(str(item["id"]), name, ext, updated, int(item.get("size") or 0)))
+            after = payload.get("paging", {}).get("next", {}).get("after")
+            if not after:
+                break
+
+        def ms(value: str) -> int:
+            return int(datetime.fromisoformat(value.replace("Z", "+00:00")).timestamp() * 1000) if value else 0
+
+        return sorted((f for f in files if ms(f.updated_at) >= since_ms), key=lambda f: ms(f.updated_at))
+
+    def download_file(self, file_id: str) -> bytes:
+        """The file's content, through a short-lived signed URL (read-only)."""
+        response = self._http.get(f"/files/v3/files/{file_id}/signed-url")
+        if response.status_code == 403:
+            raise HubSpotScopeMissing(f"HubSpot files need the 'files' scope on the private app: {response.text[:300]}")
+        if response.status_code != 200:
+            raise HubSpotError(f"HubSpot signed URL for file {file_id} failed: {response.status_code} {response.text[:300]}")
+        content = httpx.get(response.json()["url"], timeout=REQUEST_TIMEOUT_SECONDS, follow_redirects=True)
+        if content.status_code != 200:
+            raise HubSpotError(f"Downloading HubSpot file {file_id} failed: {content.status_code}")
+        return content.content
 
     def search_modified_since(
         self,

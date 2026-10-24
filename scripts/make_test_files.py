@@ -15,7 +15,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from backend.synthetic.audit_pack import write_approval_file, write_pack  # noqa: E402
+from backend.synthetic.audit_pack import write_approval_file, write_hubspot_file, write_pack  # noqa: E402
 
 
 def main() -> None:
@@ -31,6 +31,9 @@ def main() -> None:
         by_type[c["type"]] = by_type.get(c["type"], 0) + 1
     print(f"answer key: {len(key['cases'])} leakage cases (${key['seeded_total_usd']:,.2f}) {by_type}, "
           f"{len(key['legitimate_exceptions'])} legitimate look-alikes -> test_files/leakage_audit_pack_answer_key.json")
+    hs = write_hubspot_file(out)
+    print(f"HubSpot upload: test_files/{hs['file']} with {len(hs['cases'])} leakage cases (${hs['seeded_total_usd']:,.2f}), "
+          f"{len(hs['legitimate_exceptions'])} look-alikes -> test_files/hubspot_upload_answer_key.json")
 
 
 if __name__ == "__main__":

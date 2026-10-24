@@ -48,6 +48,13 @@ CREATE TABLE IF NOT EXISTS backend_runtime.leakage_cases (
     PRIMARY KEY (tenant_id, case_id)
 );
 CREATE INDEX IF NOT EXISTS leakage_cases_priority_idx ON backend_runtime.leakage_cases (tenant_id, status, priority_score DESC);
+ALTER TABLE backend_runtime.leakage_cases ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'finance_pg';
+ALTER TABLE backend_runtime.leakage_cases ADD COLUMN IF NOT EXISTS source_label TEXT;
+CREATE TABLE IF NOT EXISTS backend_runtime.hubspot_files (
+    tenant_id TEXT NOT NULL, hubspot_file_id TEXT NOT NULL, updated_at TEXT NOT NULL, name TEXT NOT NULL, file_id TEXT, job_id TEXT,
+    result JSONB, received_at TIMESTAMPTZ NOT NULL DEFAULT now(), PRIMARY KEY (tenant_id, hubspot_file_id, updated_at)
+);
+ALTER TABLE backend_runtime.hubspot_files ADD COLUMN IF NOT EXISTS sha256 TEXT;
 CREATE TABLE IF NOT EXISTS backend_runtime.mock_ap_requests (
     request_id TEXT PRIMARY KEY,
     tenant_id TEXT NOT NULL,
@@ -87,6 +94,27 @@ LEDGER_TABLES = {
     "ledger_licences": ("saas_subscriptions", "SaaS subscriptions from the uploaded files, price per seat per month"),
     "ledger_licence_users": ("saas_seat_assignments", "SaaS seats assigned to users, with last login, from the uploaded files"),
 }
+
+
+def _read_tables(path: Any, label: str) -> Dict[str, Any]:
+    """A CSV is one table, an Excel workbook one table per sheet (read the same way as workspace files)."""
+    from pathlib import Path
+
+    import duckdb
+    import pandas as pd
+
+    from backend.gateway.file_adapter import _safe_name
+
+    p = Path(path)
+    stem = _safe_name(Path(label).stem)
+    if p.suffix.lower() in (".xlsx", ".xls") or label.lower().endswith((".xlsx", ".xls")):
+        sheets = pd.read_excel(p, sheet_name=None)
+        return {(stem if len(sheets) == 1 else _safe_name(f"{stem}_{s}")): df for s, df in sheets.items()}
+    con = duckdb.connect()
+    try:
+        return {stem: con.execute(f"SELECT * FROM read_csv_auto('{p.as_posix()}', header=true)").df()}
+    finally:
+        con.close()
 
 
 def findings_frame(cases: List[Dict[str, Any]]):
@@ -156,8 +184,9 @@ class LeakageService:
         with self._lock:
             t0 = time.perf_counter()
             cases = self.detect(tenant)
-            known = {r["case_id"]: r for r in self._exec("SELECT case_id, status FROM backend_runtime.leakage_cases WHERE tenant_id = %s",
-                                                        (tenant,), fetch="all")}
+            known = {r["case_id"]: r for r in self._exec(
+                "SELECT case_id, status FROM backend_runtime.leakage_cases WHERE tenant_id = %s AND source = %s", (tenant, self.source_id),
+                fetch="all")}
             new = []
             for c in cases:
                 values = (c["related"], c.get("supplier_id"), c.get("supplier_name"), c["recoverable_usd"], c["confidence"],
@@ -171,8 +200,9 @@ class LeakageService:
                 else:
                     self._exec("""INSERT INTO backend_runtime.leakage_cases (case_id, tenant_id, leakage_type, record_id, related_records,
                                   supplier_id, supplier_name, recoverable_usd, confidence, priority_score, root_cause, evidence,
-                                  recovery_action, status) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'open')""",
-                               (c["case_id"], tenant, c["type"], c["ref"], Json(values[0]), *values[1:7], Json(values[7], dumps=_dumps), values[8]))
+                                  recovery_action, status, source) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'open', %s)""",
+                               (c["case_id"], tenant, c["type"], c["ref"], Json(values[0]), *values[1:7], Json(values[7], dumps=_dumps), values[8],
+                                self.source_id))
                     new.append(c)
             gone = [cid for cid, r in known.items() if cid not in {c["case_id"] for c in cases} and r["status"] in ("open", "awaiting_approval")]
             for cid in gone:
@@ -268,6 +298,38 @@ class LeakageService:
         for r in rows:
             r["amount_usd"] = float(r["amount_usd"] or 0)
         return rows
+
+    # ------------------------------------------------------------------ files arriving through HubSpot
+    def scan_file(self, tenant: str, owner: str, file_id: str, label: str, source: str) -> Dict[str, Any]:
+        """Leak check on one stored file, read as invoices; new cases are stored under ``source`` with recovery drafts."""
+        from backend.leakage.ledger import scan_tables
+
+        rec = self.e.files.get(tenant, owner, file_id, kind="upload")
+        tables = _read_tables(self.e.files.path(rec), label)
+        res = scan_tables(tables, llm=self.ledger_llm, as_invoices=True)
+        stored = self.add_cases(tenant, res["cases"], source, label)
+        return {"cases": len(res["cases"]), "new": stored, "recoverable_usd": round(sum(c["recoverable_usd"] for c in res["cases"]), 2),
+                "by_type": {t: sum(1 for c in res["cases"] if c["type"] == t) for t in {c["type"] for c in res["cases"]}},
+                "mapping": res["mapping"], "mapping_meta": res["mapping_meta"], "warnings": res["report"]["warnings"]}
+
+    def add_cases(self, tenant: str, cases: List[Dict[str, Any]], source: str, label: str) -> int:
+        """Store cases found outside the warehouse (e.g. a HubSpot file); existing ones are left as they are."""
+        new = 0
+        with self._lock:
+            for c in cases:
+                case_id = f"{source}:{c['case_id']}"
+                if self._exec("SELECT 1 AS x FROM backend_runtime.leakage_cases WHERE tenant_id = %s AND case_id = %s", (tenant, case_id),
+                              fetch="one"):
+                    continue
+                self._exec("""INSERT INTO backend_runtime.leakage_cases (case_id, tenant_id, leakage_type, record_id, related_records,
+                              supplier_id, supplier_name, recoverable_usd, confidence, priority_score, root_cause, evidence, recovery_action,
+                              status, source, source_label) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'open', %s, %s)""",
+                           (case_id, tenant, c["type"], c["ref"], Json(c["related"]), c.get("supplier_id"), c.get("supplier_name"),
+                            c["recoverable_usd"], c["confidence"], c["priority_score"], c["root_cause"], Json(c["evidence"], dumps=_dumps),
+                            c["action"], source, label))
+                self._draft_recovery(tenant, {**c, "case_id": case_id})
+                new += 1
+        return new
 
     # ------------------------------------------------------------------ uploaded files
     def scan_workspace(self, ctx: AccessContext, ws_id: str, on_event=None) -> Dict[str, Any]:

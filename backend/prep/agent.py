@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 import time
 from typing import Any, Callable, Dict, List, Literal, Optional, Tuple
 
@@ -105,8 +106,10 @@ def rules_plan(profile: Dict[str, Any]) -> PrepPlan:
             fixes.append(Fix(op="cast_numeric", columns=[name], rationale=f"{c['numeric_parse_rate']:.0%} of values are numbers"))
         elif text_typed and c.get("date_parse_rate", 0) >= 0.95:
             fixes.append(Fix(op="parse_dates", columns=[name], rationale=f"{c['date_parse_rate']:.0%} of values are dates"))
-        if 0 < c["nulls"] and c["null_pct"] < 0.5 and not c["id_like"] and c["numeric_parse_rate"] >= 0.95:
-            # text gaps (names, titles, emails) are facts that cannot be inferred: left missing
+        money = re.search(r"amount|paid|price|total|value|cost|balance|fee|tax|usd|eur|inr|gbp", name, re.I)
+        if 0 < c["nulls"] and c["null_pct"] < 0.5 and not c["id_like"] and c["numeric_parse_rate"] >= 0.95 and not money:
+            # text gaps (names, titles, emails) are facts that cannot be inferred, and a missing amount usually means
+            # "none" (e.g. not paid yet): both are left missing
             fixes.append(Fix(op="fill_missing", columns=[name], params={"method": "median"},
                              rationale=f"{c['nulls']} missing values filled with the median"))
         if c.get("duplicate_ids"):
