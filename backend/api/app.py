@@ -586,8 +586,8 @@ def guardrails(ctx: AccessContext = Depends(access)) -> List[Dict[str, Any]]:
         action = by_rule[g["rule_id"]]
         names = [p["name"] for p in policies if p["collection"] == action["collection"]]
         if names:
-            out.append({**g, "action": action["label"], "agent": SCOPES[action["collection"]]["label"],
-                        "limit": "Checked against: " + "; ".join(names), "policies": names})
+            out.append({**g, "action": action["label"], "agent": "Autopilot",
+                        "limit": f"{SCOPES[action['collection']]['label']} · Checked against: " + "; ".join(names), "policies": names})
     return out
 
 
