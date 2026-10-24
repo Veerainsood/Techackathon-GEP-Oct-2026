@@ -39,35 +39,36 @@ def rows(e, file_id):
     return list(csv.DictReader(io.StringIO(e.files.read_bytes(rec).decode())))
 
 
-def test_safe_fixes_apply_automatically_and_duplicates_are_flagged_not_removed(engine):
+def test_safe_fixes_and_imputation_apply_automatically_and_duplicates_are_flagged_not_removed(engine):
     job = engine.prep.check_file(TENANT, USER, upload(engine).file_id)
-    assert job["status"] == "awaiting_approval" and job["meta"]["sandbox"] == "local"
+    assert job["status"] == "done" and job["meta"]["sandbox"] == "local" and job["pending"] == 0
     ops = {f["op"]: f for f in job["fixes"]}
     assert ops["trim_whitespace"]["status"] == "applied" and ops["flag_duplicates"]["status"] == "applied"
-    assert ops["fill_missing"]["decision"] == "approval" and ops["fill_missing"]["status"] == "pending"
     data = rows(engine, job["checked_file_id"])
     assert len(data) == 6  # nothing removed
     assert data[0]["vendor"] == "Acme"  # trimmed
     dup = [r for r in data if r["subscription_id"] == "S4"]
     assert all(r["_duplicate_group"] and r["_duplicate_count"] == "2" for r in dup)
     assert any("Identical rows" == f["title"] for f in job["findings"])
-    approvals = [a for a in engine.governance.list_approvals(TENANT, "pending") if a["payload"].get("job_id") == job["job_id"]]
-    assert approvals and all(a["payload"]["kind"] == "prep_fix" and a["payload"]["agent"] == "Data prep" for a in approvals)
+    assert not [a for a in engine.governance.list_approvals(TENANT, "pending") if a["payload"].get("job_id") == job["job_id"]]
     original = engine.files.get(TENANT, USER, job["input_file_id"], kind="upload")
     assert engine.files.read_bytes(original) == MESSY  # the original is never modified
 
+    filled = engine.prep.check_file(TENANT, USER, upload(engine, b"id,qty,owner\n1,5,Ann\n2,,\n3,7,Bo\n4,9,Cy\n", "qty.csv").file_id)
+    fill = next(f for f in filled["fixes"] if f["op"] == "fill_missing")
+    assert fill["decision"] == "auto" and fill["status"] == "applied" and fill["columns"] == ["qty"]
+    assert [(r["qty"], r["owner"]) for r in rows(engine, filled["checked_file_id"]) if r["id"] == "2"] == [("7.0", "")]  # no invented name
+
 
 def test_approved_fixes_create_a_new_version_and_conversations_switch_to_it(engine):
-    job = engine.prep.check_file(TENANT, USER, upload(engine).file_id)
-    cid = engine.conversations.create(TENANT, USER, "subscriptions")
-    engine.conversations.set_workspace(cid, "ws-old", [{"file_id": job["checked_file_id"], "filename": "subscriptions.csv"}])
+    data = b"id,start_date\n1,2026-01-05\n2,05/02/2026\n3,2026-03-01\n"
+    job = engine.prep.check_file(TENANT, USER, upload(engine, data, "dates.csv").file_id)
+    cid = engine.conversations.create(TENANT, USER, "dates")
+    engine.conversations.set_workspace(cid, "ws-old", [{"file_id": job["checked_file_id"], "filename": "dates.csv"}])
     for a in [a for a in engine.governance.list_approvals(TENANT, "pending") if a["payload"].get("job_id") == job["job_id"]]:
-        approve = a["payload"]["title"].startswith("Fill missing monthly_usd")
-        row = engine.governance.decide(TENANT, a["approval_id"], approve, "approver", None)
-        result = engine.prep.decided(TENANT, row)
+        result = engine.prep.decided(TENANT, engine.governance.decide(TENANT, a["approval_id"], True, "approver", None))
     assert result["status"] == "done" and result["checked_file_id"] != job["checked_file_id"]
-    data = rows(engine, result["checked_file_id"])
-    assert [r["monthly_usd"] for r in data if r["subscription_id"] in ("S2", "S5")] == ["1200.0", "1200.0"]  # median of the numbers
+    assert all(len(r["start_date"]) == 10 and r["start_date"][4] == "-" for r in rows(engine, result["checked_file_id"]))
     conv = engine.conversations.get(TENANT, USER, cid)
     assert conv["file_ids"] == [result["checked_file_id"]] and conv["workspace_id"] is None  # rebuilt on the next question
 
@@ -125,9 +126,10 @@ def test_api_checks_uploads_and_applies_decisions(engine):
     try:
         c = TestClient(api.app)
         h = {"X-Tenant-Id": TENANT, "X-User-Id": USER}
-        fid = c.post("/files", files=[("files", ("subs.csv", io.BytesIO(MESSY), "text/csv"))], headers=h).json()[0]["file_id"]
+        dates = b"id,start_date,vendor\n1,2026-01-05, Acme\n2,05/02/2026,Globex\n3,2026-03-01,Initech\n"
+        fid = c.post("/files", files=[("files", ("dates.csv", io.BytesIO(dates), "text/csv"))], headers=h).json()[0]["file_id"]
         job = c.post("/prep/files", json={"file_ids": [fid]}, headers=h).json()[0]
-        assert job["applied"] >= 2 and job["pending"] >= 1
+        assert job["applied"] >= 1 and job["pending"] >= 1  # trimming applied; 5 Feb or 2 May waits for a person
         pending = [a for a in c.get("/approvals?status=pending", headers=h).json() if a["payload"].get("job_id") == job["job_id"]]
         for a in pending:
             assert c.post(f"/approvals/{a['approval_id']}/decision", json={"approved": False}, headers=h).status_code == 200
@@ -148,7 +150,10 @@ def test_hubspot_batches_are_planned_by_the_agent_through_the_api(pg_uri, upload
 
     def policy(system, messages, tools):
         return tool("submit_plan", summary="HubSpot contacts checked",
-                    fixes=[{"op": "trim_whitespace", "columns": ["company"], "rationale": "stray spaces"}])
+                    fixes=[{"op": "trim_whitespace", "columns": ["company"], "rationale": "stray spaces"},
+                           {"op": "fill_missing", "columns": ["lifecyclestage"], "params": {"method": "constant", "value": "lead"},
+                            "rationale": "HubSpot's default stage for new contacts"},
+                           {"op": "drop_rows_missing", "columns": ["email"], "rationale": "no email"}])
 
     e = build_engine(llm_providers=(None, None, None, None, ScriptedProvider(policy)))
     e.consumer.secret = "test-secret"
@@ -156,14 +161,17 @@ def test_hubspot_batches_are_planned_by_the_agent_through_the_api(pg_uri, upload
     api.engine = lambda: e
     try:
         body = json.dumps({"tenant_id": TENANT, "source": "hubspot", "object_type": "contacts",
-                           "records": [{"id": "101", "properties": {"email": "a@x.com", "company": " Contoso Logistics "}},
-                                       {"id": "102", "properties": {"email": "b@x.com", "company": "Woodgrove Bank"}}]}).encode()
+                           "records": [{"id": "101", "properties": {"email": "a@x.com", "company": " Contoso Logistics ", "lifecyclestage": "customer"}},
+                                       {"id": "102", "properties": {"email": None, "company": "Woodgrove Bank", "lifecyclestage": None}}]}).encode()
         r = TestClient(api.app).post("/prep/batches", content=body,
                                      headers={"X-Backend-Signature": sign(body, "test-secret"), "Content-Type": "application/json"})
         assert r.status_code == 200, r.text
         job = r.json()
         assert job["meta"]["mode"] == "llm", job["meta"].get("failure")
-        assert [x["company"] for x in job["records"]] == ["Contoso Logistics", "Woodgrove Bank"]  # fixed in the sandbox
+        assert job["pending"] == 0 and job["held_ids"] == []  # CRM data: applied without approval
+        assert [(x["company"], x["lifecyclestage"]) for x in job["records"]] == [("Contoso Logistics", "customer"), ("Woodgrove Bank", "lead")]
+        status = {f["op"]: f["status"] for f in job["fixes"]}
+        assert status == {"trim_whitespace": "applied", "fill_missing": "applied", "drop_rows_missing": "skipped"}  # no record dropped
     finally:
         api.engine = original
 

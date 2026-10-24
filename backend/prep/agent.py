@@ -16,8 +16,9 @@ from backend.llm.base import LLMProvider, ToolSpec, Usage
 
 Op = Literal["trim_whitespace", "standardize_case", "cast_numeric", "parse_dates", "normalize_values", "fill_missing",
              "flag_duplicates", "drop_exact_duplicates", "drop_rows_missing"]
-# Never lose or invent information: applied without asking.
-SAFE_OPS = {"trim_whitespace", "standardize_case", "flag_duplicates"}
+# Applied without asking (fills and mappings are logged with their rule and can be reverted from the kept original).
+SAFE_OPS = {"trim_whitespace", "standardize_case", "flag_duplicates", "fill_missing", "normalize_values"}
+DROP_OPS = {"drop_exact_duplicates", "drop_rows_missing"}
 # Safe only when every non-missing value converts; otherwise values would become missing, so a person decides.
 LOSSLESS_IF_FULLY_PARSED = {"cast_numeric": "numeric_parse_rate", "parse_dates": "date_parse_rate"}
 
@@ -49,10 +50,17 @@ RUN_PYTHON = ToolSpec("run_python", "Run Python (pandas, duckdb, numpy) in the s
                        "required": ["gap", "code"]})
 
 
-def classify(fix: Fix, profile: Dict[str, Any]) -> str:
-    """'auto' or 'approval' for one fix, decided from the operation and the measured profile."""
+def classify(fix: Fix, profile: Dict[str, Any], source: str = "upload") -> str:
+    """'auto', 'approval' or 'skipped' for one fix, decided from the operation, the measured profile and the data's origin.
+
+    CRM batches are applied without approval; dropping records is skipped there, because the database would then miss
+    records the CRM still has. For uploads, only operations that remove rows or turn values into blanks need approval."""
+    if source != "upload":
+        return "skipped" if fix.op in DROP_OPS else "auto"
     if fix.op in SAFE_OPS:
         return "auto"
+    if fix.op in DROP_OPS:
+        return "approval"
     rate_key = LOSSLESS_IF_FULLY_PARSED.get(fix.op)
     if rate_key:
         cols = {c["name"]: c for c in profile["columns"]}
@@ -79,7 +87,7 @@ def validate(plan: PrepPlan, profile: Dict[str, Any]) -> Optional[str]:
 
 
 def rules_plan(profile: Dict[str, Any]) -> PrepPlan:
-    """Deterministic plan used without an LLM: conservative, and every value-changing fix goes to approval."""
+    """Deterministic plan used without an LLM: conservative fixes only; nothing is removed."""
     fixes: List[Fix] = []
     findings: List[Finding] = []
     for c in profile["columns"]:
@@ -91,10 +99,10 @@ def rules_plan(profile: Dict[str, Any]) -> PrepPlan:
             fixes.append(Fix(op="cast_numeric", columns=[name], rationale=f"{c['numeric_parse_rate']:.0%} of values are numbers"))
         elif text_typed and c.get("date_parse_rate", 0) >= 0.95:
             fixes.append(Fix(op="parse_dates", columns=[name], rationale=f"{c['date_parse_rate']:.0%} of values are dates"))
-        if 0 < c["nulls"] and c["null_pct"] < 0.5 and not c["id_like"]:
-            numeric = c["numeric_parse_rate"] >= 0.95
-            fixes.append(Fix(op="fill_missing", columns=[name], params={"method": "median" if numeric else "mode"},
-                             rationale=f"{c['nulls']} missing values; {'median' if numeric else 'most common value'} proposed"))
+        if 0 < c["nulls"] and c["null_pct"] < 0.5 and not c["id_like"] and c["numeric_parse_rate"] >= 0.95:
+            # text gaps (names, titles, emails) are facts that cannot be inferred: left missing
+            fixes.append(Fix(op="fill_missing", columns=[name], params={"method": "median"},
+                             rationale=f"{c['nulls']} missing values filled with the median"))
         if c.get("duplicate_ids"):
             findings.append(Finding(title=f"Repeated {name}", severity="warning",
                                     detail=f"{c['duplicate_ids']} rows share an {name}; check whether these are duplicates or valid repeats"))
