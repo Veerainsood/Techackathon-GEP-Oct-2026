@@ -144,9 +144,20 @@ export interface PrepJob {
   checked_file_id: string | null
   summary?: string | null
   findings: { title: string; detail: string; severity: string }[]
+  fixes?: PrepFix[]
   applied: number
   pending: number
   rows?: number | null
+}
+export interface PrepFix {
+  id: string
+  op: string
+  columns: string[]
+  params: Record<string, unknown>
+  rationale: string
+  decision: 'auto' | 'approval' | 'skipped'
+  status: 'applied' | 'pending' | 'approved' | 'rejected' | 'skipped'
+  note?: string
 }
 export interface LeakageCase {
   case_id: string
@@ -224,6 +235,7 @@ export const api = {
   // Every upload is checked by the data-prep agent in the sandbox before questions use it.
   prepFiles: (fileIds: string[]) =>
     request<PrepJob[]>('/prep/files', { method: 'POST', headers: json, body: JSON.stringify({ file_ids: fileIds }) }),
+  prepJob: (jobId: string) => request<PrepJob>(`/prep/jobs/${encodeURIComponent(jobId)}`),
   conversation: (id: string) =>
     request<{ conversation: ConversationRow & { workspace_id?: string | null }; messages: ConversationMessage[] }>(
       `/conversations/${encodeURIComponent(id)}`,

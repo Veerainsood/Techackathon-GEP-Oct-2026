@@ -226,7 +226,7 @@ def overpayments(run: Run) -> List[Dict[str, Any]]:
         JOIN procurement.supplier_payments p ON p.invoice_id = i.invoice_id
         WHERE i.amount_total > 0 AND upper(i.status) NOT IN {CLOSED}
         GROUP BY i.invoice_id, i.supplier_id, s.supplier_name, i.invoice_number, i.amount_total, i.fx_rate
-        HAVING SUM(p.amount) > i.amount_total + 0.01""")
+        HAVING SUM(p.amount) > i.amount_total + 0.02""")  # cent-level differences are rounding (floats in uploaded files)
     out = []
     for r in rows:
         fx = _f(r["fx_rate"]) or 1.0

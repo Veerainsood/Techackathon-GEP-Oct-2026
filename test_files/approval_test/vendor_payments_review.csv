@@ -1,0 +1,13 @@
+Payment ID,Vendor,Invoice No,Payment Date,Amount USD,Approver,Cost Centre
+PMT-1001, Contoso Logistics ,CON-48211,03/04/2025,"12,450.00",Priya M.,CC-100
+PMT-1002,Woodgrove Bank,WGB-10233,15/04/2025,"8,200.50",Rahul S.,CC-200
+PMT-1003,Northwind Traders ,NOR-77310,04/05/2025,TBC,Priya M.,
+PMT-1004,Litware Pvt Ltd,LIT-55102,2025-05-20,"3,999.00",Anita K.,CC-300
+PMT-1005,Fabrikam Retail,FAB-90021,06/07/2025,"15,000.00",Rahul S.,CC-200
+PMT-1005,Fabrikam Retail,FAB-90021,06/07/2025,"15,000.00",Rahul S.,CC-200
+,,,07/08/2025,450.00,,CC-100
+PMT-1007,Adatum Systems,ADT-31007,2025-08-14,pending,Anita K.,
+PMT-1008,Contoso Logistics,CON-48390,09/09/2025,"21,300.00",Priya M.,CC-100
+PMT-1009,Woodgrove Bank,WGB-10301,2025-09-30,"6,750.25",Rahul S.,CC-200
+PMT-1010,Northwind Traders,NOR-77402,10/11/2025,"9,120.00",,CC-100
+,,,11/12/2025,,,

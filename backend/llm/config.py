@@ -40,9 +40,9 @@ def _load_dotenv() -> None:
 # Override with BACKEND_<ROLE>_LLM_MODEL, e.g. BACKEND_HERCULES_LLM_MODEL.
 FOUNDRY_DEFAULT_DEPLOYMENTS = {"explorer": "claude-opus-4-6", "hercules": "claude-opus-4-6", "adjudicator": "gpt-5.6-sol",
                                "intent": "gpt-5.6-sol", "prep": "claude-opus-4-6", "structured": "gpt-5.6-sol",
-                               "light": "claude-sonnet-5"}
+                               "ledger": "gpt-5.6-sol", "light": "claude-sonnet-5"}
 # A role without its own BACKEND_<ROLE>_LLM_* value inherits from this role before the global BACKEND_LLM_* value.
-ROLE_FALLBACK = {"adjudicator": "structured", "intent": "structured"}
+ROLE_FALLBACK = {"adjudicator": "structured", "intent": "structured", "ledger": "structured"}
 
 
 def foundry_credentials() -> tuple:

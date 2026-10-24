@@ -1,0 +1,688 @@
+{
+  "pack": "leakage_audit_pack",
+  "seeded_total_usd": 1664796.37,
+  "cases": [
+    {
+      "type": "duplicate_invoice",
+      "ref": "5100000211",
+      "related": [
+        "5100000057"
+      ],
+      "supplier_id": "V-1008",
+      "recoverable_usd": 64501.84,
+      "note": "paid twice",
+      "supplier": "Tailspin Freight"
+    },
+    {
+      "type": "duplicate_invoice",
+      "ref": "5100000212",
+      "related": [
+        "5100000100"
+      ],
+      "supplier_id": "V-1014",
+      "recoverable_usd": 30060.81,
+      "note": "paid twice",
+      "supplier": "Wide World Importers"
+    },
+    {
+      "type": "duplicate_invoice",
+      "ref": "AP25-00199",
+      "related": [
+        "AP25-00033"
+      ],
+      "supplier_id": "V-1006",
+      "recoverable_usd": 109342.62,
+      "note": "paid twice",
+      "supplier": "Fabrikam Retail"
+    },
+    {
+      "type": "duplicate_invoice",
+      "ref": "5100000213",
+      "related": [
+        "5100000040"
+      ],
+      "supplier_id": "V-1006",
+      "recoverable_usd": 105426.49,
+      "note": "paid twice",
+      "supplier": "Fabrikam Retail"
+    },
+    {
+      "type": "duplicate_invoice",
+      "ref": "AP25-00200",
+      "related": [
+        "AP25-00038"
+      ],
+      "supplier_id": "V-1006",
+      "recoverable_usd": 78006.37,
+      "note": "paid twice",
+      "supplier": "Fabrikam Retail"
+    },
+    {
+      "type": "duplicate_invoice",
+      "ref": "5100000214",
+      "related": [
+        "5100000048"
+      ],
+      "supplier_id": "V-1007",
+      "recoverable_usd": 24676.86,
+      "note": "paid twice",
+      "supplier": "Proseware Cloud"
+    },
+    {
+      "type": "duplicate_invoice",
+      "ref": "AP25-00201",
+      "related": [
+        "AP25-00097"
+      ],
+      "supplier_id": "V-1014",
+      "recoverable_usd": 11829.82,
+      "note": "paid twice",
+      "supplier": "Wide World Importers"
+    },
+    {
+      "type": "duplicate_invoice",
+      "ref": "5100000215",
+      "related": [
+        "5100000083"
+      ],
+      "supplier_id": "V-1011",
+      "recoverable_usd": 60834.37,
+      "note": "not yet paid: hold the payment",
+      "supplier": "Lucerne Consulting"
+    },
+    {
+      "type": "price_variance",
+      "ref": "AP25-00182",
+      "related": [
+        "SIL-000970"
+      ],
+      "supplier_id": "V-1025",
+      "recoverable_usd": 10692.16,
+      "note": "RPT-ANL invoiced 13% above the contract rate",
+      "supplier": "Nod Publishers"
+    },
+    {
+      "type": "price_variance",
+      "ref": "5100000006",
+      "related": [
+        "SIL-000030"
+      ],
+      "supplier_id": "V-1001",
+      "recoverable_usd": 254.8,
+      "note": "HDL-HR invoiced 15% above the contract rate",
+      "supplier": "Contoso Logistics"
+    },
+    {
+      "type": "price_variance",
+      "ref": "AP25-00032",
+      "related": [
+        "SIL-000189"
+      ],
+      "supplier_id": "V-1006",
+      "recoverable_usd": 60.85,
+      "note": "MNT-HR invoiced 19% above the contract rate",
+      "supplier": "Fabrikam Retail"
+    },
+    {
+      "type": "price_variance",
+      "ref": "AP25-00181",
+      "related": [
+        "SIL-000968"
+      ],
+      "supplier_id": "V-1025",
+      "recoverable_usd": 13734.4,
+      "note": "RPT-ANL invoiced 19% above the contract rate",
+      "supplier": "Nod Publishers"
+    },
+    {
+      "type": "price_variance",
+      "ref": "5100000050",
+      "related": [
+        "SIL-000245"
+      ],
+      "supplier_id": "V-1007",
+      "recoverable_usd": 57.09,
+      "note": "API-10K invoiced 16% above the contract rate",
+      "supplier": "Proseware Cloud"
+    },
+    {
+      "type": "price_variance",
+      "ref": "5100000007",
+      "related": [
+        "SIL-000036"
+      ],
+      "supplier_id": "V-1001",
+      "recoverable_usd": 43.04,
+      "note": "FRT-STD invoiced 7% above the contract rate",
+      "supplier": "Contoso Logistics"
+    },
+    {
+      "type": "price_variance",
+      "ref": "5100000026",
+      "related": [
+        "SIL-000121"
+      ],
+      "supplier_id": "V-1003",
+      "recoverable_usd": 68.21,
+      "note": "SEAT-STD invoiced 9% above the contract rate",
+      "supplier": "Adatum Systems"
+    },
+    {
+      "type": "price_variance",
+      "ref": "AP25-00042",
+      "related": [
+        "SIL-000255"
+      ],
+      "supplier_id": "V-1007",
+      "recoverable_usd": 3533.28,
+      "note": "SUP-PREM invoiced 16% above the contract rate",
+      "supplier": "Proseware Cloud"
+    },
+    {
+      "type": "missed_discount",
+      "ref": "AP25-00052",
+      "related": [],
+      "supplier_id": "V-1009",
+      "recoverable_usd": 3324.62,
+      "note": "2% discount available within 10 days; paid later",
+      "supplier": "Blue Yonder Office"
+    },
+    {
+      "type": "missed_discount",
+      "ref": "5100000122",
+      "related": [],
+      "supplier_id": "V-1016",
+      "recoverable_usd": 332.43,
+      "note": "2% discount available within 10 days; paid later",
+      "supplier": "Humongous Insurance"
+    },
+    {
+      "type": "missed_discount",
+      "ref": "5100000126",
+      "related": [],
+      "supplier_id": "V-1017",
+      "recoverable_usd": 38.03,
+      "note": "2% discount available within 10 days; paid later",
+      "supplier": "Fourth Coffee"
+    },
+    {
+      "type": "missed_discount",
+      "ref": "5100000070",
+      "related": [],
+      "supplier_id": "V-1010",
+      "recoverable_usd": 5283.45,
+      "note": "2% discount available within 10 days; paid later",
+      "supplier": "Coho Hardware"
+    },
+    {
+      "type": "missed_discount",
+      "ref": "5100000113",
+      "related": [],
+      "supplier_id": "V-1015",
+      "recoverable_usd": 2394.26,
+      "note": "2% discount available within 10 days; paid later",
+      "supplier": "Alpine Ski Supplies"
+    },
+    {
+      "type": "missed_discount",
+      "ref": "AP25-00174",
+      "related": [],
+      "supplier_id": "V-1024",
+      "recoverable_usd": 61.85,
+      "note": "2% discount available within 10 days; paid later",
+      "supplier": "City Power & Light"
+    },
+    {
+      "type": "missed_discount",
+      "ref": "5100000075",
+      "related": [],
+      "supplier_id": "V-1010",
+      "recoverable_usd": 4608.07,
+      "note": "2% discount available within 10 days; paid later",
+      "supplier": "Coho Hardware"
+    },
+    {
+      "type": "missed_discount",
+      "ref": "AP25-00026",
+      "related": [],
+      "supplier_id": "V-1005",
+      "recoverable_usd": 318.97,
+      "note": "2% discount available within 10 days; paid later",
+      "supplier": "Woodgrove Bank"
+    },
+    {
+      "type": "overpayment",
+      "ref": "AP25-00065",
+      "related": [],
+      "supplier_id": "V-1011",
+      "recoverable_usd": 30901.3,
+      "note": "payments exceed the invoice amount",
+      "supplier": "Lucerne Consulting"
+    },
+    {
+      "type": "overpayment",
+      "ref": "5100000029",
+      "related": [],
+      "supplier_id": "V-1004",
+      "recoverable_usd": 3487.59,
+      "note": "payments exceed the invoice amount",
+      "supplier": "Litware Pvt Ltd"
+    },
+    {
+      "type": "overpayment",
+      "ref": "AP25-00019",
+      "related": [],
+      "supplier_id": "V-1004",
+      "recoverable_usd": 474.49,
+      "note": "payments exceed the invoice amount",
+      "supplier": "Litware Pvt Ltd"
+    },
+    {
+      "type": "overpayment",
+      "ref": "AP25-00066",
+      "related": [],
+      "supplier_id": "V-1011",
+      "recoverable_usd": 26235.49,
+      "note": "payments exceed the invoice amount",
+      "supplier": "Lucerne Consulting"
+    },
+    {
+      "type": "overpayment",
+      "ref": "AP25-00072",
+      "related": [],
+      "supplier_id": "V-1011",
+      "recoverable_usd": 57061.39,
+      "note": "payments exceed the invoice amount",
+      "supplier": "Lucerne Consulting"
+    },
+    {
+      "type": "overpayment",
+      "ref": "5100000076",
+      "related": [],
+      "supplier_id": "V-1011",
+      "recoverable_usd": 7295.67,
+      "note": "payments exceed the invoice amount",
+      "supplier": "Lucerne Consulting"
+    },
+    {
+      "type": "unused_saas",
+      "ref": "LIC-001",
+      "related": [],
+      "supplier_id": "V-1003",
+      "recoverable_usd": 1620.0,
+      "note": "3 seats without a login in 60 days",
+      "supplier": "Adatum Systems"
+    },
+    {
+      "type": "unused_saas",
+      "ref": "LIC-002",
+      "related": [],
+      "supplier_id": "V-1004",
+      "recoverable_usd": 1200.0,
+      "note": "4 seats without a login in 60 days",
+      "supplier": "Litware Pvt Ltd"
+    },
+    {
+      "type": "unused_saas",
+      "ref": "LIC-003",
+      "related": [],
+      "supplier_id": "V-1007",
+      "recoverable_usd": 1620.0,
+      "note": "3 seats without a login in 60 days",
+      "supplier": "Proseware Cloud"
+    },
+    {
+      "type": "unused_saas",
+      "ref": "LIC-004",
+      "related": [],
+      "supplier_id": "V-1019",
+      "recoverable_usd": 1680.0,
+      "note": "4 seats without a login in 60 days",
+      "supplier": "Relecloud"
+    },
+    {
+      "type": "unused_saas",
+      "ref": "LIC-005",
+      "related": [],
+      "supplier_id": "V-1020",
+      "recoverable_usd": 1500.0,
+      "note": "5 seats without a login in 60 days",
+      "supplier": "VanArsdel Analytics"
+    },
+    {
+      "type": "unused_saas",
+      "ref": "LIC-006",
+      "related": [],
+      "supplier_id": "V-1023",
+      "recoverable_usd": 1800.0,
+      "note": "6 seats without a login in 60 days",
+      "supplier": "Southridge Video"
+    },
+    {
+      "type": "unused_saas",
+      "ref": "LIC-007",
+      "related": [],
+      "supplier_id": "V-1003",
+      "recoverable_usd": 2100.0,
+      "note": "5 seats without a login in 60 days",
+      "supplier": "Adatum Systems"
+    },
+    {
+      "type": "unused_saas",
+      "ref": "LIC-008",
+      "related": [],
+      "supplier_id": "V-1004",
+      "recoverable_usd": 864.0,
+      "note": "4 seats without a login in 60 days",
+      "supplier": "Litware Pvt Ltd"
+    },
+    {
+      "type": "duplicate_invoice",
+      "ref": "AP25-00202",
+      "related": [
+        "AP25-00001"
+      ],
+      "supplier_id": "V-1026",
+      "recoverable_usd": 37815.37,
+      "note": "same invoice booked under a duplicate vendor record (same tax id)",
+      "supplier": "CONTOSO LOGISTICS LTD."
+    },
+    {
+      "type": "duplicate_invoice",
+      "ref": "SCN-0001",
+      "related": [
+        "5100000187"
+      ],
+      "supplier_id": "V-1025",
+      "recoverable_usd": 165539.97,
+      "note": "scanned copy of an invoice already in the ERP, paid twice",
+      "supplier": "Nod Publishers"
+    },
+    {
+      "type": "duplicate_invoice",
+      "ref": "SCN-0002",
+      "related": [
+        "AP25-00043"
+      ],
+      "supplier_id": "V-1008",
+      "recoverable_usd": 33778.72,
+      "note": "scanned copy of an invoice already in the ERP, paid twice",
+      "supplier": "Tailspin Freight"
+    },
+    {
+      "type": "duplicate_invoice",
+      "ref": "SCN-0003",
+      "related": [
+        "5100000098"
+      ],
+      "supplier_id": "V-1014",
+      "recoverable_usd": 53121.08,
+      "note": "scanned copy of an invoice already in the ERP, paid twice",
+      "supplier": "Wide World Importers"
+    },
+    {
+      "type": "duplicate_invoice",
+      "ref": "AP25-00203",
+      "related": [
+        "AP25-00183"
+      ],
+      "supplier_id": "V-1025",
+      "recoverable_usd": 230078.96,
+      "note": "second copy of the same invoice",
+      "supplier": "Nod Publishers"
+    },
+    {
+      "type": "duplicate_invoice",
+      "ref": "SCN-0004",
+      "related": [
+        "AP25-00183"
+      ],
+      "supplier_id": "V-1025",
+      "recoverable_usd": 230078.96,
+      "note": "third copy of the same invoice",
+      "supplier": "Nod Publishers"
+    },
+    {
+      "type": "duplicate_invoice",
+      "ref": "AP25-00204",
+      "related": [
+        "5100000089"
+      ],
+      "supplier_id": "V-1013",
+      "recoverable_usd": 51856.18,
+      "note": "supplier resent the invoice 45 days later; it was paid again",
+      "supplier": "Trey Research"
+    },
+    {
+      "type": "duplicate_invoice",
+      "ref": "AP25-00205",
+      "related": [
+        "AP25-00092"
+      ],
+      "supplier_id": "V-1014",
+      "recoverable_usd": 173511.69,
+      "note": "copy not paid yet: hold the payment",
+      "supplier": "Wide World Importers"
+    },
+    {
+      "type": "price_variance",
+      "ref": "AP25-00215",
+      "related": [],
+      "supplier_id": "V-1006",
+      "recoverable_usd": 7786.95,
+      "note": "12% above the renewed price card",
+      "supplier": "Fabrikam Retail"
+    },
+    {
+      "type": "price_variance",
+      "ref": "AP25-00001",
+      "related": [],
+      "supplier_id": "V-1001",
+      "recoverable_usd": 3025.25,
+      "note": "still billed at the old contract's prices after the renegotiated contract started",
+      "supplier": "Contoso Logistics"
+    },
+    {
+      "type": "price_variance",
+      "ref": "AP25-00003",
+      "related": [],
+      "supplier_id": "V-1001",
+      "recoverable_usd": 367.06,
+      "note": "still billed at the old contract's prices after the renegotiated contract started",
+      "supplier": "Contoso Logistics"
+    },
+    {
+      "type": "price_variance",
+      "ref": "AP25-00005",
+      "related": [],
+      "supplier_id": "V-1001",
+      "recoverable_usd": 135.8,
+      "note": "still billed at the old contract's prices after the renegotiated contract started",
+      "supplier": "Contoso Logistics"
+    },
+    {
+      "type": "price_variance",
+      "ref": "AP25-00006",
+      "related": [],
+      "supplier_id": "V-1001",
+      "recoverable_usd": 2589.56,
+      "note": "still billed at the old contract's prices after the renegotiated contract started",
+      "supplier": "Contoso Logistics"
+    },
+    {
+      "type": "price_variance",
+      "ref": "5100000219",
+      "related": [],
+      "supplier_id": "V-1002",
+      "recoverable_usd": 641.2,
+      "note": "escalated price charged the day before the escalation took effect",
+      "supplier": "Northwind Traders"
+    },
+    {
+      "type": "price_variance",
+      "ref": "AP25-00218",
+      "related": [],
+      "supplier_id": "V-1027",
+      "recoverable_usd": 245.0,
+      "note": "INR price 10% above the USD rate card after conversion",
+      "supplier": "Vayu Freight India Pvt Ltd"
+    },
+    {
+      "type": "unused_saas",
+      "ref": "LIC-013",
+      "related": [
+        "LIC-005"
+      ],
+      "supplier_id": "V-1003",
+      "recoverable_usd": 4500.0,
+      "note": "second Video Meetings subscription nobody uses (bought twice)",
+      "supplier": "Adatum Systems"
+    },
+    {
+      "type": "unused_saas",
+      "ref": "LIC-014",
+      "related": [],
+      "supplier_id": "V-1003",
+      "recoverable_usd": 2400.0,
+      "note": "10 of 40 annual licences never assigned",
+      "supplier": "Adatum Systems"
+    }
+  ],
+  "legitimate_exceptions": [
+    {
+      "type": "duplicate_invoice",
+      "ref": "5100000196",
+      "why": "monthly retainer: same amount every month, different periods"
+    },
+    {
+      "type": "duplicate_invoice",
+      "ref": "5100000202",
+      "why": "monthly retainer: same amount every month, different periods"
+    },
+    {
+      "type": "duplicate_invoice",
+      "ref": "5100000208",
+      "why": "monthly retainer: same amount every month, different periods"
+    },
+    {
+      "type": "price_variance",
+      "ref": "AP25-00007",
+      "why": "price includes the agreed 5% escalation"
+    },
+    {
+      "type": "price_variance",
+      "ref": "AP25-00008",
+      "why": "price includes the agreed 5% escalation"
+    },
+    {
+      "type": "price_variance",
+      "ref": "AP25-00009",
+      "why": "price includes the agreed 5% escalation"
+    },
+    {
+      "type": "missed_discount",
+      "ref": "AP25-00118",
+      "why": "invoice was on hold for a dispute"
+    },
+    {
+      "type": "missed_discount",
+      "ref": "5100000034",
+      "why": "invoice was on hold for a dispute"
+    },
+    {
+      "type": "unused_saas",
+      "ref": "LIC-009",
+      "why": "seats assigned in the last 30 days"
+    },
+    {
+      "type": "unused_saas",
+      "ref": "LIC-010",
+      "why": "seats assigned in the last 30 days"
+    },
+    {
+      "type": "duplicate_invoice",
+      "ref": "5100000216",
+      "why": "duplicate reversed by a credit note"
+    },
+    {
+      "type": "duplicate_invoice",
+      "ref": "AP25-00206",
+      "why": "duplicate paid, then refunded by the supplier"
+    },
+    {
+      "type": "duplicate_invoice",
+      "ref": "AP25-00208",
+      "why": "weekly service on a blanket PO, within its value"
+    },
+    {
+      "type": "duplicate_invoice",
+      "ref": "AP25-00209",
+      "why": "weekly service on a blanket PO, within its value"
+    },
+    {
+      "type": "duplicate_invoice",
+      "ref": "AP25-00210",
+      "why": "weekly service on a blanket PO, within its value"
+    },
+    {
+      "type": "duplicate_invoice",
+      "ref": "AP25-00212",
+      "why": "second credit memo on the PO, not an invoice"
+    },
+    {
+      "type": "duplicate_invoice",
+      "ref": "5100000218",
+      "why": "same number and amount at a different vendor"
+    },
+    {
+      "type": "price_variance",
+      "ref": "AP25-00213",
+      "why": "new price card (overlapping the old one) applies"
+    },
+    {
+      "type": "price_variance",
+      "ref": "AP25-00214",
+      "why": "new price card (overlapping the old one) applies"
+    },
+    {
+      "type": "price_variance",
+      "ref": "AP25-00216",
+      "why": "escalation applies from this date"
+    },
+    {
+      "type": "price_variance",
+      "ref": "5100000220",
+      "why": "0.3% rounding difference"
+    },
+    {
+      "type": "price_variance",
+      "ref": "5100000221",
+      "why": "INR invoice at the contracted USD price after conversion"
+    },
+    {
+      "type": "price_variance",
+      "ref": "5100000222",
+      "why": "INR invoice at the contracted USD price after conversion"
+    },
+    {
+      "type": "price_variance",
+      "ref": "AP25-00217",
+      "why": "INR invoice at the contracted USD price after conversion"
+    },
+    {
+      "type": "missed_discount",
+      "ref": "AP25-00219",
+      "why": "discount taken on the last day of the window"
+    },
+    {
+      "type": "overpayment",
+      "ref": "5100000096",
+      "why": "extra payment refunded by the supplier"
+    },
+    {
+      "type": "overpayment",
+      "ref": "5100000060",
+      "why": "one-cent rounding difference"
+    }
+  ]
+}
