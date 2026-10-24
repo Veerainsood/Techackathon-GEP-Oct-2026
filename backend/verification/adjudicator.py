@@ -210,9 +210,8 @@ class Adjudicator:
                 question=question, selected_path="Abstained_With_Uncertainty", agreement_status="material_uncertainty",
                 disagreement_analysis=(analysis or "") + " | question admits several definitions: " + "; ".join(dict.fromkeys(ambiguous)),
                 discriminating_check_query=None, final_answer=(
-                    "The question is ambiguous, so no single verified answer is given. Best-supported reading: "
-                    f"{cand.final_answer_candidate} (via {cand.interpreted_question}). Please specify: "
-                    + "; ".join(dict.fromkeys(ambiguous))),
+                    f"{cand.final_answer_candidate}\n\nI read this as: {cand.interpreted_question}. If you meant something else ("
+                    + "; ".join(dict.fromkeys(ambiguous)) + "), say so and I will rerun it."),
                 final_structured_data=cand.observed_results, winning_query=cand.query_or_plan, winning_source_id=cand.source_id,
                 supporting_evidence=evidence[:20], validation_findings=findings, unresolved_assumptions=assumptions,
                 confidence_score=0.3, verification_status=VerificationStatus.INFERRED_CANDIDATE, query_lineage=lineage,
@@ -220,9 +219,7 @@ class Adjudicator:
         blocking = winner_errors
         verified = not blocking and cand.structured_value is not None
         confidence = round(max(0.05, min(0.99, 0.75 + 0.05 * score - 0.25 * len(blocking))), 2)
-        answer = cand.final_answer_candidate
-        if not verified:
-            answer = f"Unverified: {answer}. Blocking findings: " + "; ".join(f.message for f in blocking[:3])
+        answer = cand.final_answer_candidate  # blocking findings stay in validation_findings, not in the reply
         return AdjudicationDecision(
             question=question, selected_path=path, agreement_status=status, disagreement_analysis=analysis,
             discriminating_check_query="\n".join(c["sql"] for c in checks) if checks else None,
@@ -235,16 +232,20 @@ class Adjudicator:
             query_lineage=lineage, total_latency_ms=latency, total_tokens_used=tokens)
 
     def _abstain(self, question, a, b, analysis, checks, findings, evidence, lineage, tokens, latency) -> AdjudicationDecision:
+        # Both readings are kept in disagreement_analysis; the reply leads with the one that produced a result.
+        best = a if a.structured_value is not None or b.structured_value is None else b
+        other = b if best is a else a
+        analysis = (analysis or "") + f" | readings: {a.agent_name}={a.structured_value!r}; {b.agent_name}={b.structured_value!r}"
         return AdjudicationDecision(
             question=question, selected_path="Abstained_With_Uncertainty", agreement_status="material_uncertainty",
             disagreement_analysis=analysis, discriminating_check_query="\n".join(c["sql"] for c in checks) if checks else None,
             discriminating_check_result=[{"purpose": c["purpose"], "rows": c["rows"]} for c in checks] if checks else None,
-            final_answer=("The two independent analyses disagree and the evidence does not clearly favour either. "
-                          f"Explorer: {a.final_answer_candidate} ({a.interpreted_question}). "
-                          f"Hercules: {b.final_answer_candidate} ({b.interpreted_question})."),
-            final_structured_data=[{"agent": "Explorer", "value": a.structured_value},
-                                   {"agent": "Hercules", "value": b.structured_value}],
-            winning_query="", winning_source_id=a.source_id, supporting_evidence=evidence[:20], validation_findings=findings,
+            final_answer=(best.final_answer_candidate
+                          + (f"\n\nA second way to read the question ({other.interpreted_question}) gives "
+                             f"{other.final_answer_candidate}" if other.structured_value is not None else "")),
+            final_structured_data=best.observed_results,
+            winning_query=best.query_or_plan, winning_source_id=best.source_id, supporting_evidence=evidence[:20],
+            validation_findings=findings,
             unresolved_assumptions=list(dict.fromkeys(a.open_questions + b.open_questions)), confidence_score=0.2,
             verification_status=VerificationStatus.INFERRED_CANDIDATE, query_lineage=lineage, total_latency_ms=latency,
             total_tokens_used=tokens)

@@ -490,10 +490,17 @@ class DualPathWorkflow:
 
         detail = None if direct else self._detail(ctx, d)
         charts = state.get("charts")
-        if charts is None and not direct and d.get("selected_path") != "Abstained_With_Uncertainty":
+        if charts is None and not direct:
             from backend.orchestration.charts import plan_charts
+            from backend.orchestration.visualize import breakdown_chart
 
-            charts = plan_charts(state["question"], d.get("final_structured_data") or [], llm=getattr(self.e.intent, "llm", None))
+            llm = getattr(self.e.intent, "llm", None)
+            charts = plan_charts(state["question"], d.get("final_structured_data") or [], llm=llm)
+            if all(c["type"] == "kpi" for c in charts):  # a single figure: add its breakdown so the answer has a picture
+                try:
+                    charts += breakdown_chart(self.e.gateway, ctx, d, state["question"], llm=llm)
+                except Exception:
+                    pass
         consistency = check_consistency(self.e, ctx, state.get("manifest") or {})
         leases = self._leases.pop(state["request_id"], None)
         if leases:

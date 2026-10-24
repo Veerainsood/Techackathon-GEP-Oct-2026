@@ -172,10 +172,15 @@ class LLMAdjudicator:
             d.verification_status = VerificationStatus.INFERRED_CANDIDATE
             # User-facing text never names the internal agents; the full reasoning stays in disagreement_analysis.
             d.disagreement_analysis = ((d.disagreement_analysis or "") + f" | adjudicator ({self.provider.model}): {v.rationale[:600]}").strip(" |")
-            best = next((c for c in cands.values() if c.structured_value is not None and c.final_answer_candidate), None)
-            d.final_answer = ("I couldn't fully verify this against the data, so treat it as unconfirmed."
-                              + (f"\n\nBest available reading:\n\n{best.final_answer_candidate}" if best else
-                                 " Try narrowing the question (a period, a supplier or a status)."))
-            d.final_structured_data = [{"agent": n, "value": c.structured_value} for n, c in cands.items()]
-            d.winning_query = ""
+            # The reply leads with the best-supported reading; the verification status stays on the decision.
+            usable = [n for n, c in cands.items() if c.structured_value is not None and c.final_answer_candidate]
+            usable.sort(key=lambda n: len(_blocking(cands[n], findings.get(n, []))))
+            if usable:
+                best = cands[usable[0]]
+                d.final_answer = best.final_answer_candidate
+                d.final_structured_data = best.observed_results
+                d.winning_query, d.winning_source_id = best.query_or_plan, best.source_id
+            else:
+                d.final_answer = "I need a little more detail to answer this precisely: a period, a supplier or a status would do."
+                d.final_structured_data, d.winning_query = [], ""
         return d

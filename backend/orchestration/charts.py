@@ -73,7 +73,28 @@ def profile(rows: List[Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
     return out
 
 
-def unit_of(col: str) -> str:
+GENERIC = {"value", "result", "total", "amount", "metric", "n", "count", "sum"}
+HOW_MANY = re.compile(r"\b(how many|number of|count)\b", re.I)
+
+
+def subject(question: str) -> str:
+    """'How many invoices have status OVERDUE?' -> 'Invoices with status OVERDUE'; used when a column has no real name."""
+    q = question.strip().rstrip("?.! ")
+    m = re.match(r"(?i)how many (\w+(?: \w+)?) (?:have|has|are|were|with|in|is) (.+)", q)
+    if m:
+        q = f"{m.group(1)} with {m.group(2)}"
+    q = re.sub(r"(?i)^(what|which) (is|was|are|were) (the )?|^(show|give|tell)( me)?( the)? |^how many ", "", q)
+    q = q[:1].upper() + q[1:]
+    return q if len(q) <= 70 else q[:67].rstrip() + "…"
+
+
+def unit_of(col: str, question: str = "") -> str:
+    if col.lower() in GENERIC and question:
+        if HOW_MANY.search(question):
+            return "count"
+        if PERCENT.search(question) or "%" in question:
+            return "percent"
+        return "usd" if MONEY.search(question) or "$" in question else "number"
     if PERCENT.search(col):
         return "percent"
     if COUNT.search(col) and not MONEY.search(col):
@@ -81,8 +102,10 @@ def unit_of(col: str) -> str:
     return "usd" if MONEY.search(col) else "number"
 
 
-def _title(series: List[str], x: Optional[str]) -> str:
+def _title(series: List[str], x: Optional[str], question: str = "") -> str:
     def lab(c: str) -> str:
+        if c.lower() in GENERIC and question:
+            return subject(question)
         return re.sub(r"(^|_)(usd|inr|eur|amt)(?=_|$)", "", c, flags=re.I).replace("_", " ").strip().capitalize() or c
     s = lab(series[0]) if len(series) == 1 else " vs ".join(lab(c).lower() for c in series[:3]).capitalize()
     return f"{s} by {lab(x).lower()}" if x else s
@@ -97,25 +120,25 @@ def rules_plan(question: str, rows: List[Dict[str, Any]]) -> Optional[ChartPlan]
     cats = [c for c, p in prof.items() if p["kind"] == "category"]
     if not measures or any(p["kind"] == "id" for p in prof.values()):
         return None  # nothing to plot, or a list of individual records
-    unit = unit_of(measures[0])
-    series = [m for m in measures if unit_of(m) == unit][:4]  # one scale per chart
+    unit = unit_of(measures[0], question)
+    series = [m for m in measures if unit_of(m, question) == unit][:4]  # one scale per chart
     if len(rows) == 1:
         if len(prof) - len(measures) > 1:
             return None
-        return ChartPlan(type="kpi", title=_title(series, None), series=series, unit=unit)
+        return ChartPlan(type="kpi", title=_title(series, None, question), series=series, unit=unit)
     if times:
-        return ChartPlan(type="line", title=_title(series, times[0]), x=times[0], series=series, unit=unit)
+        return ChartPlan(type="line", title=_title(series, times[0], question), x=times[0], series=series, unit=unit)
     if not cats:
         return None
     x = min(cats, key=lambda c: (prof[c]["distinct"] != len(rows), prof[c]["distinct"]))
     others = [c for c in cats if c != x and 1 < prof[c]["distinct"] <= MAX_STACK]
     if others and prof[x]["distinct"] < len(rows):
-        return ChartPlan(type="stacked_bar", title=f"{_title(series[:1], x)}, split by {others[0].replace('_', ' ')}", x=x,
+        return ChartPlan(type="stacked_bar", title=f"{_title(series[:1], x, question)}, split by {others[0].replace('_', ' ')}", x=x,
                          series=series[:1], stack=others[0], unit=unit)
     positive = all((_num(r.get(series[0])) or 0) >= 0 for r in rows)
     if SHARE_Q.search(question) and len(series) == 1 and positive and len(rows) <= MAX_STACK:
-        return ChartPlan(type="donut", title=_title(series, x), x=x, series=series, unit=unit)
-    return ChartPlan(type="bar", title=_title(series, x), x=x, series=series, unit=unit)
+        return ChartPlan(type="donut", title=_title(series, x, question), x=x, series=series, unit=unit)
+    return ChartPlan(type="bar", title=_title(series, x, question), x=x, series=series, unit=unit)
 
 
 def check(plan: ChartPlan, rows: List[Dict[str, Any]]) -> Optional[str]:
@@ -141,9 +164,9 @@ def check(plan: ChartPlan, rows: List[Dict[str, Any]]) -> Optional[str]:
     return None
 
 
-def materialize(plan: ChartPlan, rows: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+def materialize(plan: ChartPlan, rows: List[Dict[str, Any]], question: str = "") -> Optional[Dict[str, Any]]:
     """The chart the UI draws: the plan plus data projected (or pivoted) from the verified rows."""
-    keys = [{"key": c, "label": _title([c], None)} for c in plan.series]
+    keys = [{"key": c, "label": _title([c], None, question)} for c in plan.series]
     if plan.type == "kpi":
         r = rows[0]
         return {**plan.model_dump(), "series": keys, "data": [{c: _num(r.get(c)) for c in plan.series}]}
@@ -227,7 +250,7 @@ def plan_charts(question: str, rows: List[Dict[str, Any]], llm: Any = None) -> L
             plan, mode = proposal, "rules_fallback"
     if plan is None or check(plan, rows):
         return []
-    chart = materialize(plan, rows)
+    chart = materialize(plan, rows, question)
     return [dict(chart, chosen_by=mode)] if chart and chart["data"] else []
 
 

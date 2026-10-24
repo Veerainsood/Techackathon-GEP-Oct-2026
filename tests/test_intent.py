@@ -79,6 +79,8 @@ def test_incomplete_decision_is_sent_back_and_brief_reaches_explorer(pg_uri, upl
     calls = {"n": 0}
 
     def intent_policy(system, messages, tools):
+        if not any(t.name == "submit_intent" for t in tools):  # chart planning shares this model
+            return tool("submit_chart", chart=None, reason="not needed")
         calls["n"] += 1
         if calls["n"] == 1:
             return tool("submit_intent", route="investigate", reason="data question")  # missing brief -> rejected
