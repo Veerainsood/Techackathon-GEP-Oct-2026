@@ -356,29 +356,68 @@ export const api = {
   },
 
   // Server-sent events from POST /ask/stream: one JSON object per `data:` line, last one is {event: "result"}.
+  // Reads the server-sent events and, in parallel, polls the same events once a second: proxies that inspect HTTPS (corporate
+  // gateways) can hold a streamed response back until it ends, while short polling requests pass straight through. Events
+  // are numbered by the server, so each one is shown once whichever way it arrives first.
   async askStream(req: AskRequest, onEvent: (e: StreamEvent) => void, signal?: AbortSignal): Promise<void> {
-    const r = await fetch(API_BASE + '/ask/stream', {
-      method: 'POST',
-      headers: headers({ 'Content-Type': 'application/json' }),
-      body: JSON.stringify({ use_memory: true, export_formats: ['excel', 'csv'], ...req }),
-      signal,
-    })
-    if (!r.ok || !r.body) throw new Error(`${r.status}: ${await r.text()}`)
-    const reader = r.body.getReader()
-    const decoder = new TextDecoder()
-    let buf = ''
-    for (;;) {
-      const { value, done } = await reader.read()
-      if (done) break
-      buf += decoder.decode(value, { stream: true })
-      let idx: number
-      while ((idx = buf.indexOf('\n\n')) >= 0) {
-        const chunk = buf.slice(0, idx)
-        buf = buf.slice(idx + 2)
-        for (const line of chunk.split('\n')) {
-          if (line.startsWith('data: ')) onEvent(JSON.parse(line.slice(6)) as StreamEvent)
+    const streamId = crypto.randomUUID()
+    const seen = new Set<number>()
+    let next = 0
+    let finished = false
+    const deliver = (e: StreamEvent) => {
+      const seq = typeof e.seq === 'number' ? e.seq : null
+      if (seq !== null) {
+        if (seen.has(seq)) return
+        seen.add(seq)
+        while (seen.has(next)) next++
+      }
+      if (e.event === 'result' || e.event === 'error') finished = true
+      onEvent(e)
+    }
+    const local = new AbortController()
+    signal?.addEventListener('abort', () => local.abort())
+    const poll = (async () => {
+      while (!finished && !local.signal.aborted) {
+        await new Promise((r) => setTimeout(r, 1000))
+        if (finished || local.signal.aborted) break
+        try {
+          const r = await fetch(`${API_BASE}/ask/stream/${streamId}/events?after=${next}`, { headers: headers(), signal: local.signal })
+          if (r.ok) ((await r.json()) as { events: StreamEvent[] }).events.forEach(deliver)
+        } catch {
+          /* the stream may still deliver; keep polling until the answer arrives */
         }
       }
+      if (finished) local.abort() // the answer arrived by polling: stop waiting for a held-back stream
+    })()
+    try {
+      const r = await fetch(API_BASE + '/ask/stream', {
+        method: 'POST',
+        headers: headers({ 'Content-Type': 'application/json' }),
+        body: JSON.stringify({ use_memory: true, export_formats: ['excel', 'csv'], ...req, stream_id: streamId }),
+        signal: local.signal,
+      })
+      if (!r.ok || !r.body) throw new Error(`${r.status}: ${await r.text()}`)
+      const reader = r.body.getReader()
+      const decoder = new TextDecoder()
+      let buf = ''
+      for (;;) {
+        const { value, done } = await reader.read()
+        if (done) break
+        buf += decoder.decode(value, { stream: true })
+        let idx: number
+        while ((idx = buf.indexOf('\n\n')) >= 0) {
+          const chunk = buf.slice(0, idx)
+          buf = buf.slice(idx + 2)
+          for (const line of chunk.split('\n')) {
+            if (line.startsWith('data: ')) deliver(JSON.parse(line.slice(6)) as StreamEvent)
+          }
+        }
+      }
+    } catch (err) {
+      if (!finished && !signal?.aborted) throw err
+    } finally {
+      finished = finished || !signal?.aborted
+      await poll.catch(() => undefined)
     }
   },
 }

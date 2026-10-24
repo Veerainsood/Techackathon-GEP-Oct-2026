@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import shutil
 import threading
+import time
 from functools import lru_cache
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -96,6 +97,7 @@ class AskRequest(BaseModel):
     workspace_id: Optional[str] = None
     sources: Optional[List[str]] = None  # restrict the analysis to these authorized sources
     conversation_id: Optional[str] = None  # continue a conversation; a new one is created when omitted
+    stream_id: Optional[str] = Field(None, pattern=r"^[A-Za-z0-9-]{8,64}$")  # lets the client poll the stream's events
 
 
 class QueryRequest(BaseModel):
@@ -295,21 +297,32 @@ def ask_stream(req: AskRequest, ctx: AccessContext = Depends(access)):
     from fastapi.responses import StreamingResponse
 
     q: "queue.Queue" = queue.Queue()
+    log = _stream_log(req.stream_id, ctx)
+
+    def put(event: Dict[str, Any]) -> None:
+        if log is not None:  # numbered, so a client polling the log and reading the stream shows each event once
+            with log["lock"]:
+                event = {**event, "seq": len(log["events"])}
+                log["events"].append(event)
+        q.put(event)
+
     conv = _conversation(req, ctx)
     _record_question(conv, req.question)
-    q.put({"event": "conversation", "conversation_id": conv["conversation_id"], "workspace_id": conv["workspace_id"]})
+    put({"event": "conversation", "conversation_id": conv["conversation_id"], "workspace_id": conv["workspace_id"]})
 
     def work():
         try:
             state = engine().ask(req.question, ctx=_scoped(req, ctx), mode=req.mode, use_memory=req.use_memory,
-                                 export_formats=req.export_formats, workspace_id=conv["workspace_id"], on_event=q.put,
+                                 export_formats=req.export_formats, workspace_id=conv["workspace_id"], on_event=put,
                                  history=conv["history"])
             payload = result_payload(state, req.question) | {k: conv[k] for k in ("conversation_id", "workspace_id")}
             _record_turn(conv, req.question, payload)
-            q.put({"event": "result", "result": payload})
+            put({"event": "result", "result": payload})
         except Exception as exc:
             _record_failure(conv, f"{type(exc).__name__}: {exc}")
-            q.put({"event": "error", "error": f"{type(exc).__name__}: {exc}"})
+            put({"event": "error", "error": f"{type(exc).__name__}: {exc}"})
+        if log is not None:
+            log["done_at"] = time.time()
         q.put(None)
 
     threading.Thread(target=work, daemon=True).start()
@@ -321,7 +334,38 @@ def ask_stream(req: AskRequest, ctx: AccessContext = Depends(access)):
                 break
             yield f"data: {_json.dumps(item, default=str)}\n\n"
 
-    return StreamingResponse(gen(), media_type="text/event-stream")
+    return StreamingResponse(gen(), media_type="text/event-stream",
+                             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+
+# Recent streams' events, for clients behind proxies that hold a streamed response back until it ends (e.g. TLS-inspecting
+# corporate gateways): they poll GET /ask/stream/{id}/events while the stream runs. Kept 10 minutes after the answer.
+_STREAMS: Dict[str, Dict[str, Any]] = {}
+_STREAMS_LOCK = threading.Lock()
+
+
+def _stream_log(stream_id: Optional[str], ctx: AccessContext) -> Optional[Dict[str, Any]]:
+    if not stream_id:
+        return None
+    now = time.time()
+    with _STREAMS_LOCK:
+        for sid in [s for s, v in _STREAMS.items() if v.get("done_at") and now - v["done_at"] > 600]:
+            _STREAMS.pop(sid, None)
+        if stream_id in _STREAMS:
+            raise HTTPException(409, "stream id already used")
+        log = _STREAMS[stream_id] = {"owner": (ctx.tenant_id, ctx.user_id), "events": [], "lock": threading.Lock(), "done_at": None}
+    return log
+
+
+@app.get("/ask/stream/{stream_id}/events")
+def ask_stream_events(stream_id: str, after: int = 0, ctx: AccessContext = Depends(access)) -> Dict[str, Any]:
+    """Events of a running (or just finished) stream from position ``after``; ``done`` once the answer was sent."""
+    log = _STREAMS.get(stream_id)
+    if not log or log["owner"] != (ctx.tenant_id, ctx.user_id):
+        raise HTTPException(404, "unknown stream")
+    with log["lock"]:
+        events = log["events"][max(0, after):]
+    return {"events": events, "done": log["done_at"] is not None}
 
 
 @app.get("/skills")
