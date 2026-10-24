@@ -80,7 +80,11 @@ const modeMeta: Record<Mode, { label: string; on: string }> = {
 }
 
 const settingsTabs = [
-  { id: 'guardrails', label: 'Guardrails', desc: "How far the agent can go by itself. Inside these limits it runs without you; outside them it comes to you. The model can't override them." },
+  {
+    id: 'guardrails',
+    label: 'Guardrails',
+    desc: 'Who decides each action autopilot can take on records your policies cover: autopilot itself, you (Approvals), or nobody. A policy violation blocks the action whatever is set here.',
+  },
   {
     id: 'policies',
     label: 'Policies',
@@ -110,7 +114,7 @@ export function SettingsPage() {
   const active = settingsTabs.find((t) => t.id === tab)!
 
   useEffect(() => {
-    if (!LIVE) return
+    if (!LIVE || tab !== 'guardrails') return // reloaded on every visit: policies decide which actions are listed
     api
       .guardrails()
       .then((g) => {
@@ -119,7 +123,7 @@ export function SettingsPage() {
       })
       .catch((e) => setGuardError(`Could not load guardrails: ${errorText(e)}`))
       .finally(() => setLoaded(true))
-  }, [])
+  }, [tab])
 
   // Optimistic update: the row changes at once and is reverted if the server refuses the change.
   const changeMode = (row: Boundary, m: Mode) => {
@@ -157,6 +161,12 @@ export function SettingsPage() {
         <>
       {guardError && <div className="mb-3 rounded-lg bg-rose-50 px-3 py-2 text-[12px] text-rose-700">{guardError}</div>}
       {!loaded && <div className="mb-3 text-[12px] text-muted">Loading guardrails…</div>}
+      {LIVE && loaded && !rows.length && !guardError && (
+        <div className="mb-3 rounded-xl border border-line bg-white px-4 py-6 text-center text-[12px] text-muted">
+          No guardrails yet. Autopilot only acts on pending invoices or contracts that a policy covers; add one in the Policies tab and
+          its actions appear here.
+        </div>
+      )}
       <div className="mb-3 flex items-center gap-2 text-[12px]">
         {(['auto', 'approve', 'never'] as Mode[]).map((m) => (
           <span key={m} className="flex items-center gap-1.5 rounded-full border border-line bg-white px-2.5 py-1">

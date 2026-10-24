@@ -57,27 +57,37 @@ def test_defaults_are_seeded_once(store, tenant):
     store.ensure_guardrails(tenant)
     store.ensure_guardrails(tenant)  # second call must not duplicate rows
     rules = store.list_guardrails(tenant)
-    assert len(rules) == len(DEFAULT_GUARDRAILS) == 13  # incl. the two autopilot actions (sign contracts, record payments)
-    assert [r["rule_id"] for r in rules] == [d[0] for d in DEFAULT_GUARDRAILS]
-    assert sum(r["locked"] for r in rules) == 2
-    assert {r["mode"] for r in rules} == {"auto", "approve", "never"}
+    # one rule per action autopilot can take (backend/policies/actions.py); nothing the system does not do
+    assert [r["rule_id"] for r in rules] == [d[0] for d in DEFAULT_GUARDRAILS] == ["sign-contracts", "record-invoice-payments"]
+    assert {r["rule_id"]: r["mode"] for r in rules} == {"sign-contracts": "approve", "record-invoice-payments": "auto"}
+
+
+def test_rules_for_actions_that_do_not_exist_are_not_listed(store, tenant):
+    store.ensure_guardrails(tenant)
+    store._exec("INSERT INTO backend_runtime.guardrails (tenant_id, rule_id, action, agent, mode) VALUES (%s, 'move-money', 'Move money', 'x', 'auto') "
+                "ON CONFLICT DO NOTHING", (tenant,))
+    assert "move-money" not in {r["rule_id"] for r in store.list_guardrails(tenant)}
+    with pytest.raises(KeyError):
+        store.set_mode(tenant, "move-money", "never", "Meera Rao")
 
 
 def test_mode_change_is_saved(store, tenant):
     store.ensure_guardrails(tenant)
-    updated = store.set_mode(tenant, "send-collection-reminders", "approve", "Meera Rao")
-    assert updated["mode"] == "approve"
+    updated = store.set_mode(tenant, "sign-contracts", "auto", "Meera Rao")
+    assert updated["mode"] == "auto"
     current = {r["rule_id"]: r for r in store.list_guardrails(tenant)}
-    assert current["send-collection-reminders"]["mode"] == "approve"
-    assert current["escalate-overdue-accounts"]["mode"] == "auto"  # other rules untouched
+    assert current["sign-contracts"]["mode"] == "auto"
+    assert current["record-invoice-payments"]["mode"] == "auto"  # other rules untouched
 
 
 def test_locked_rule_cannot_change(store, tenant):
     store.ensure_guardrails(tenant)
+    store._exec("UPDATE backend_runtime.guardrails SET locked = TRUE, mode = 'never' WHERE tenant_id = %s AND rule_id = 'record-invoice-payments'",
+                (tenant,))
     with pytest.raises(GuardrailLocked):
-        store.set_mode(tenant, "move-money-between-accounts", "auto", "Meera Rao")
+        store.set_mode(tenant, "record-invoice-payments", "auto", "Meera Rao")
     current = {r["rule_id"]: r for r in store.list_guardrails(tenant)}
-    assert current["move-money-between-accounts"]["mode"] == "never"
+    assert current["record-invoice-payments"]["mode"] == "never"
 
 
 def test_unknown_rule_and_bad_mode_are_refused(store, tenant):
@@ -85,7 +95,7 @@ def test_unknown_rule_and_bad_mode_are_refused(store, tenant):
     with pytest.raises(KeyError):
         store.set_mode(tenant, "no-such-rule", "auto", "Meera Rao")
     with pytest.raises(ValueError):
-        store.set_mode(tenant, "send-collection-reminders", "sometimes", "Meera Rao")
+        store.set_mode(tenant, "sign-contracts", "sometimes", "Meera Rao")
 
 
 def test_approval_is_created_pending_and_approved_once(store, tenant):

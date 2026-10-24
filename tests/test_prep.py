@@ -60,16 +60,29 @@ def test_safe_fixes_and_imputation_apply_automatically_and_duplicates_are_flagge
     assert [(r["qty"], r["owner"]) for r in rows(engine, filled["checked_file_id"]) if r["id"] == "2"] == [("7.0", "")]  # no invented name
 
 
-def test_approved_fixes_create_a_new_version_and_conversations_switch_to_it(engine):
-    data = b"id,start_date\n1,2026-01-05\n2,05/02/2026\n3,2026-03-01\n"
-    job = engine.prep.check_file(TENANT, USER, upload(engine, data, "dates.csv").file_id)
-    cid = engine.conversations.create(TENANT, USER, "dates")
-    engine.conversations.set_workspace(cid, "ws-old", [{"file_id": job["checked_file_id"], "filename": "dates.csv"}])
-    for a in [a for a in engine.governance.list_approvals(TENANT, "pending") if a["payload"].get("job_id") == job["job_id"]]:
-        result = engine.prep.decided(TENANT, engine.governance.decide(TENANT, a["approval_id"], True, "approver", None))
+def dropper(pg_uri, uploads_dir):
+    """An engine whose agent proposes removing rows that have no id (the only kind of fix that waits for a person)."""
+    from backend.engine import build_engine
+
+    def policy(system, messages, tools):
+        return tool("submit_plan", summary="checked", fixes=[
+            {"op": "trim_whitespace", "columns": ["vendor"], "rationale": "stray spaces"},
+            {"op": "drop_rows_missing", "columns": ["id"], "rationale": "rows without an id cannot be used"}])
+
+    return build_engine(llm_providers=(None, None, None, None, ScriptedProvider(policy)))
+
+
+def test_approved_fixes_create_a_new_version_and_conversations_switch_to_it(pg_uri, uploads_dir):
+    e = dropper(pg_uri, uploads_dir)
+    job = e.prep.check_file(TENANT, USER, upload(e, b"id,vendor\n1, Acme\n,Globex\n3,Initech\n", "ids.csv").file_id)
+    assert job["pending"] == 1 and job["applied"] == 1
+    cid = e.conversations.create(TENANT, USER, "ids")
+    e.conversations.set_workspace(cid, "ws-old", [{"file_id": job["checked_file_id"], "filename": "ids.csv"}])
+    for a in [a for a in e.governance.list_approvals(TENANT, "pending") if a["payload"].get("job_id") == job["job_id"]]:
+        result = e.prep.decided(TENANT, e.governance.decide(TENANT, a["approval_id"], True, "approver", None))
     assert result["status"] == "done" and result["checked_file_id"] != job["checked_file_id"]
-    assert all(len(r["start_date"]) == 10 and r["start_date"][4] == "-" for r in rows(engine, result["checked_file_id"]))
-    conv = engine.conversations.get(TENANT, USER, cid)
+    assert [r["id"] for r in rows(e, result["checked_file_id"])] == ["1", "3"]
+    conv = e.conversations.get(TENANT, USER, cid)
     assert conv["file_ids"] == [result["checked_file_id"]] and conv["workspace_id"] is None  # rebuilt on the next question
 
 
@@ -120,11 +133,11 @@ def test_computed_fill_uses_product_and_formulas_as_text_are_sent_back(pg_uri, u
     assert [float(r["total"]) for r in rows(e, job["checked_file_id"])] == [10.0, 13.5]
 
 
-def test_day_month_ambiguous_dates_need_approval(engine):
-    data = b"id,start_date\n1,2026-01-05\n2,05/02/2026\n3,2026-03-01\n"
+def test_data_fixes_never_wait_for_a_person_even_for_uploads(engine):
+    data = b"id,start_date,amount\n1,2026-01-05,10\n2,05/02/2026,TBC\n3,2026-03-01,30\n"
     job = engine.prep.check_file(TENANT, USER, upload(engine, data, "dates.csv").file_id)
-    parse = next(f for f in job["fixes"] if f["op"] == "parse_dates")
-    assert parse["decision"] == "approval"  # 5 Feb or 2 May: a person chooses
+    assert job["pending"] == 0 and all(f["decision"] == "auto" for f in job["fixes"])
+    assert any(f["op"] == "parse_dates" and f["status"] == "applied" for f in job["fixes"])
 
 
 def test_investigating_agents_have_no_python_tool(engine):
@@ -136,20 +149,21 @@ def test_investigating_agents_have_no_python_tool(engine):
     assert "run_python" not in available_tools(session)
 
 
-def test_api_checks_uploads_and_applies_decisions(engine):
+def test_api_checks_uploads_and_applies_decisions(pg_uri, uploads_dir):
     from fastapi.testclient import TestClient
 
     from backend.api import app as api
 
+    engine = dropper(pg_uri, uploads_dir)
     original = api.engine
     api.engine = lambda: engine
     try:
         c = TestClient(api.app)
         h = {"X-Tenant-Id": TENANT, "X-User-Id": USER}
-        dates = b"id,start_date,vendor\n1,2026-01-05, Acme\n2,05/02/2026,Globex\n3,2026-03-01,Initech\n"
-        fid = c.post("/files", files=[("files", ("dates.csv", io.BytesIO(dates), "text/csv"))], headers=h).json()[0]["file_id"]
+        ids = b"id,vendor\n1, Acme\n,Globex\n3,Initech\n"
+        fid = c.post("/files", files=[("files", ("ids.csv", io.BytesIO(ids), "text/csv"))], headers=h).json()[0]["file_id"]
         job = c.post("/prep/files", json={"file_ids": [fid]}, headers=h).json()[0]
-        assert job["applied"] >= 1 and job["pending"] >= 1  # trimming applied; 5 Feb or 2 May waits for a person
+        assert job["applied"] >= 1 and job["pending"] == 1  # trimming applied; removing the row without an id waits
         pending = [a for a in c.get("/approvals?status=pending", headers=h).json() if a["payload"].get("job_id") == job["job_id"]]
         for a in pending:
             assert c.post(f"/approvals/{a['approval_id']}/decision", json={"approved": False}, headers=h).status_code == 200

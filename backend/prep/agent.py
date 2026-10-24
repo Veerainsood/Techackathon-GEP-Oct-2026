@@ -17,11 +17,9 @@ from backend.llm.base import LLMProvider, ToolSpec, Usage
 
 Op = Literal["trim_whitespace", "standardize_case", "cast_numeric", "parse_dates", "normalize_values", "fill_missing",
              "flag_duplicates", "drop_exact_duplicates", "drop_rows_missing"]
-# Applied without asking (fills and mappings are logged with their rule and can be reverted from the kept original).
-SAFE_OPS = {"trim_whitespace", "standardize_case", "flag_duplicates", "fill_missing", "normalize_values"}
+# Removing rows is the only operation a person decides on (and only for uploaded files); every other fix is applied, logged
+# with its rule, and can be undone from the kept original.
 DROP_OPS = {"drop_exact_duplicates", "drop_rows_missing"}
-# Safe only when every non-missing value converts; otherwise values would become missing, so a person decides.
-LOSSLESS_IF_FULLY_PARSED = {"cast_numeric": "numeric_parse_rate", "parse_dates": "date_parse_rate"}
 
 
 class Fix(BaseModel):
@@ -52,24 +50,14 @@ RUN_PYTHON = ToolSpec("run_python", "Run Python (pandas, duckdb, numpy) in the s
 
 
 def classify(fix: Fix, profile: Dict[str, Any], source: str = "upload") -> str:
-    """'auto', 'approval' or 'skipped' for one fix, decided from the operation, the measured profile and the data's origin.
+    """'auto', 'approval' or 'skipped' for one fix, decided from the operation and the data's origin.
 
-    CRM batches are applied without approval; dropping records is skipped there, because the database would then miss
-    records the CRM still has. For uploads, only operations that remove rows or turn values into blanks need approval."""
-    if source != "upload":
-        return "skipped" if fix.op in DROP_OPS else "auto"
-    if fix.op in SAFE_OPS:
-        return "auto"
+    Data fixes (filling gaps, conversions, dates, mappings, case, spaces, flags) are never sent to a person. Removing rows
+    is: duplicates can be real overspend. CRM batches skip removals entirely, because the database must keep every record
+    the CRM has; for an uploaded file a removal waits for approval."""
     if fix.op in DROP_OPS:
-        return "approval"
-    rate_key = LOSSLESS_IF_FULLY_PARSED.get(fix.op)
-    if rate_key:
-        cols = {c["name"]: c for c in profile["columns"]}
-        ambiguous = fix.op == "parse_dates" and not fix.params.get("format") and \
-            any(cols.get(c, {}).get("ambiguous_dates", 0) for c in fix.columns)
-        if fix.columns and not ambiguous and all(cols.get(c, {}).get(rate_key, 0) >= 1.0 for c in fix.columns):
-            return "auto"
-    return "approval"
+        return "skipped" if source != "upload" else "approval"
+    return "auto"
 
 
 def validate(plan: PrepPlan, profile: Dict[str, Any]) -> Optional[str]:
