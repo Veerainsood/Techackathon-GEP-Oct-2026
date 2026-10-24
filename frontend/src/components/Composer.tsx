@@ -1,5 +1,7 @@
 import { ArrowUp, ChevronDown, Database, Paperclip, Target } from 'lucide-react'
-import { useRef, useState } from 'react'
+import { useLayoutEffect, useRef, useState } from 'react'
+
+const MAX_INPUT_PX = 200
 
 export const modes = [
   { id: 'L1', name: 'Analyze', desc: 'Read data, surface issues' },
@@ -22,6 +24,16 @@ interface Props {
 export function Composer({ onSubmit, placeholder = 'Set a financial goal or ask anything…', compact, initial = '', sourceCount = 6, onAttach, attachments = [], onRemoveAttachment }: Props) {
   const [value, setValue] = useState(initial)
   const fileRef = useRef<HTMLInputElement>(null)
+  const boxRef = useRef<HTMLTextAreaElement>(null)
+
+  // Grow with the text up to MAX_INPUT_PX, then scroll inside.
+  useLayoutEffect(() => {
+    const el = boxRef.current
+    if (!el) return
+    el.style.height = 'auto'
+    el.style.height = `${Math.min(el.scrollHeight, MAX_INPUT_PX)}px`
+    el.style.overflowY = el.scrollHeight > MAX_INPUT_PX ? 'auto' : 'hidden'
+  }, [value])
   const [mode, setMode] = useState<(typeof modes)[number]>(modes[3])
   const [open, setOpen] = useState(false)
 
@@ -54,6 +66,7 @@ export function Composer({ onSubmit, placeholder = 'Set a financial goal or ask 
         </div>
       )}
       <textarea
+        ref={boxRef}
         value={value}
         onChange={(e) => setValue(e.target.value)}
         onKeyDown={(e) => {
@@ -64,7 +77,7 @@ export function Composer({ onSubmit, placeholder = 'Set a financial goal or ask 
         }}
         rows={compact ? 1 : 2}
         placeholder={placeholder}
-        className="w-full resize-none bg-transparent px-4 pt-3.5 text-[15px] text-ink outline-none placeholder:text-stone-400"
+        className="scrollbar-thin block w-full resize-none overflow-hidden bg-transparent px-4 pb-1 pt-3.5 text-[15px] leading-6 text-ink outline-none placeholder:text-stone-400"
       />
       <div className="flex items-center justify-between px-2.5 pb-2.5">
         <div className="flex items-center gap-1">
