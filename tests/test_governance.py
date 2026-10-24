@@ -57,7 +57,7 @@ def test_defaults_are_seeded_once(store, tenant):
     store.ensure_guardrails(tenant)
     store.ensure_guardrails(tenant)  # second call must not duplicate rows
     rules = store.list_guardrails(tenant)
-    assert len(rules) == len(DEFAULT_GUARDRAILS) == 11
+    assert len(rules) == len(DEFAULT_GUARDRAILS) == 13  # incl. the two autopilot actions (sign contracts, record payments)
     assert [r["rule_id"] for r in rules] == [d[0] for d in DEFAULT_GUARDRAILS]
     assert sum(r["locked"] for r in rules) == 2
     assert {r["mode"] for r in rules} == {"auto", "approve", "never"}

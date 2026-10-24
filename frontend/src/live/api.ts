@@ -182,6 +182,75 @@ export interface LeakageSummary {
   dismissed: number
   by_type: Record<string, { label: string; cases: number; recoverable_usd: number; open: number; executed: number }>
 }
+export interface PolicyInput {
+  name: string
+  collection: 'pending_invoices' | 'pending_contracts'
+  region: 'ALL' | 'AMER' | 'EMEA' | 'APAC'
+  variable: string
+  allowed_values?: string[] | null
+  min_value?: number | null
+  max_value?: number | null
+  hitl_values?: string[]
+  hitl_above?: number | null
+  active?: boolean
+}
+export interface PolicyRow extends Required<Omit<PolicyInput, 'allowed_values'>> {
+  policy_id: string
+  allowed_values: string[] | null
+  region_name: string
+  owner: string
+  version: number
+  rule: string
+  in_scope?: number
+  violations?: number
+}
+export interface PolicyField {
+  id: string
+  label: string
+  kind: 'categorical' | 'numeric'
+  values?: string[]
+  min?: number | null
+  max?: number | null
+}
+export interface PolicyCatalog {
+  regions: { code: string; name: string }[]
+  collections: { id: string; label: string; records: number; by_region: Record<string, number>; fields: PolicyField[] }[]
+}
+export interface AutopilotAction {
+  action_id: string
+  action: 'sign_contract' | 'record_payment'
+  collection: string
+  record_id: string
+  reference: string | null
+  customer: string | null
+  region: string | null
+  trigger: { source: string; contact: string; name: string; account: string; from: string | null; to: string; at: string }
+  decision: 'executed' | 'awaiting_approval' | 'blocked' | 'refused' | 'skipped' | 'paused' | 'rejected' | 'superseded'
+  reason: string
+  guardrail: string
+  mode: string
+  simulated: boolean
+  created_at: string
+}
+export interface PolicyEvent {
+  event_id: number
+  kind: string
+  collection: string | null
+  record_id: string | null
+  title: string
+  detail: Record<string, unknown>
+  created_at: string
+}
+export const errorMessage = (e: unknown): string => {
+  const text = e instanceof Error ? e.message : String(e)
+  const m = text.match(/^\d{3}: (.*)$/s)
+  try {
+    const parsed = JSON.parse(m ? m[1] : text)
+    return typeof parsed === 'string' ? parsed : parsed.message ?? text
+  } catch {
+    return m ? m[1] : text
+  }
+}
 export interface ConversationRow {
   conversation_id: string
   title: string
@@ -229,6 +298,17 @@ export const api = {
   answers: () => request<AnswerRow[]>('/runtime/answers'),
   files: () => request<StoredFile[]>('/files'),
   conversations: () => request<ConversationRow[]>('/conversations'),
+  policies: () => request<PolicyRow[]>('/policies'),
+  policyCatalog: () => request<PolicyCatalog>('/policies/catalog'),
+  createPolicy: (p: PolicyInput) => request<PolicyRow>('/policies', { method: 'POST', headers: json, body: JSON.stringify(p) }),
+  updatePolicy: (id: string, p: PolicyInput) =>
+    request<PolicyRow>(`/policies/${encodeURIComponent(id)}`, { method: 'PUT', headers: json, body: JSON.stringify(p) }),
+  deletePolicy: (id: string) => request<{ deleted: string }>(`/policies/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  policyEvents: () => request<PolicyEvent[]>('/policies/events'),
+  autopilotActions: () => request<AutopilotAction[]>('/autopilot/actions'),
+  autopilotStatus: () => request<{ paused: boolean }>('/autopilot/status'),
+  setAutopilotPaused: (paused: boolean) =>
+    request<{ paused: boolean }>('/autopilot/status', { method: 'POST', headers: json, body: JSON.stringify({ paused }) }),
   leakageSummary: () => request<LeakageSummary>('/leakage/summary'),
   leakageCases: () => request<LeakageCase[]>('/leakage/cases'),
   deleteConversation: (id: string) => request<{ deleted: string }>(`/conversations/${encodeURIComponent(id)}`, { method: 'DELETE' }),

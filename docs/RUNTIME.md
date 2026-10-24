@@ -124,6 +124,27 @@ Endpoints: `POST /leakage/scan`, `GET /leakage/summary`, `GET /leakage/cases?sta
 
 Test files (`python scripts/make_test_files.py`): `test_files/leakage_audit_pack/` holds 14 messy AP files to upload together (two ERP invoice exports, scanned invoices, a bank statement with free-text references and refunds, credit notes, a superseded contract, an overlapping price renewal, an INR supplier with FX rates, licences and user activity, gaps to fill, and an unrelated journal extract). The answer key is `test_files/leakage_audit_pack_answer_key.json`: 55 seeded cases worth $1,664,796.37 and 27 legitimate look-alikes. Verified live (Opus data prep in Daytona, then the chat): 55/55 detected with the right values, 0 false positives, no look-alike flagged. `test_files/approval_test/vendor_payments_review.(csv|xlsx)` contains problems that need a person (ambiguous dates, amounts typed as text, rows without an id, exact duplicates); the decisions appear in the chat.
 
+## Policies, guardrails and autopilot
+
+**Policies** (Settings → Policies, `backend/policies/engine.py`) say which states pending invoices (open, partially paid, overdue) and pending contracts (draft, waiting for the counterparty) may reach, by region: Americas, Europe, Middle East & Africa, Asia-Pacific, or all. Invoices take the region of their legal entity, contracts the region of their customer group. Each policy constrains one field. For a category it lists the allowed values and the values that need a person; for a number it sets a minimum, a maximum and an amount above which a person approves. The editor's choices come from the data.
+
+- **Intersection:** when several policies apply to a record, the effective constraint is their intersection (a region policy and an all-regions policy together).
+- **Admission check:** a new or edited policy that would leave a field with no allowed value is rejected, and the conflicting policies are named (HTTP 409).
+- **State check:** at start, after any policy change, and after a sync event on the invoice or contract tables, every pending record is evaluated. The last state per record is kept in `backend_runtime.policy_states` with the previous one (before → after), and violations are recorded in `policy_events` and shown in the Autopilot feed. Nothing is changed.
+
+**Guardrails** (Settings → Guardrails) say who decides an allowed action: Autonomous, Ask me, or Never. Two autopilot actions were added: "Mark pending contracts signed" (Ask me) and "Record payment of due invoices" (Autonomous).
+
+**Autopilot** (`backend/policies/autopilot.py`) is triggered by HubSpot:
+1. A HubSpot sync event arrives, and autopilot compares each contact's lifecycle stage with the one it last saw (it learns the current stages at start).
+2. When a contact becomes a customer, its customer group's pending contracts get "mark signed" and its overdue invoices get "record payment".
+3. Each proposal is checked against the state it would produce. A violation blocks it; with no applicable policy nothing is done.
+4. The guardrail then decides: done (recorded, never written to the finance data), Approvals, or refused. A value marked "needs a person" always goes to Approvals.
+5. An approved action is checked against the policies again before it counts as done. A record is acted on once, even if the same change arrives twice, and the emergency stop (sidebar) pauses autopilot.
+
+Demo defaults are created on first use: contract signature needs a person; Americas contracts up to $1M; invoice settlement states; invoices over $50,000 need a person; Asia-Pacific open balance up to $30,000. Changing a contact to "customer" in HubSpot (or `POST /autopilot/simulate {"email": "..."}` for a demo without HubSpot) shows each outcome. Woodgrove Bank's $1.07M contract is blocked by the Americas cap. Contoso Logistics' signature and its two invoices over $50k wait in Approvals, and its two smaller overdue invoices are done on their own.
+
+Endpoints: `GET/POST /policies`, `PUT/DELETE /policies/{id}`, `GET /policies/catalog`, `POST /policies/refresh`, `GET /policies/states`, `GET /policies/events`, `POST /policies/evaluate` (dry run), `GET /autopilot/actions`, `GET/POST /autopilot/status` (emergency stop), `POST /autopilot/simulate`.
+
 ## Conversations
 
 Every question belongs to a conversation, stored in PostgreSQL (`backend_runtime.conversations` and `backend_runtime.messages`; code in `backend/runtime/conversations.py`).

@@ -9,8 +9,11 @@ import {
   type AnswerRow,
   type ApprovalRow,
   type GuardrailRow,
+  type AutopilotAction,
   type Investigation,
   type LeakageCase,
+  type PolicyEvent,
+  type PolicyRow,
   type LeakageSummary,
   type ModelConfig,
   type RuntimeSource,
@@ -209,6 +212,63 @@ export function leakageKpis(s: LeakageSummary | null) {
   ]
 }
 
+/** Active policies -> standing goals (records in scope, violations now). */
+export function toPolicyGoals(policies: PolicyRow[], actions: AutopilotAction[]): StandingGoal[] {
+  return policies
+    .filter((p) => p.active)
+    .map((p) => ({
+      id: p.policy_id,
+      title: p.name,
+      metric: `${p.in_scope ?? 0} in scope${p.violations ? ` · ${p.violations} violating` : ''} · ${p.region_name}`,
+      status: p.violations ? 'at-risk' : 'on-track',
+      progress: p.in_scope ? Math.round((((p.in_scope ?? 0) - (p.violations ?? 0)) / p.in_scope) * 100) : 100,
+      lastRun: 'on every change',
+      actionsToday: actions.filter((a) => a.collection === p.collection && a.decision === 'executed').length,
+    }))
+}
+
+const ACTION_TITLE: Record<AutopilotAction['action'], string> = {
+  sign_contract: 'Mark contract {id} signed',
+  record_payment: 'Record payment of overdue invoice {id}',
+}
+const OUTCOME: Record<AutopilotAction['decision'], string> = {
+  executed: 'Done on its own · recorded, not written to the ERP',
+  awaiting_approval: 'Waiting in Approvals',
+  blocked: 'Blocked by policy',
+  refused: 'Refused by guardrail',
+  skipped: 'No policy covers it · nothing done',
+  paused: 'Not done · autopilot paused',
+  rejected: 'Rejected in Approvals',
+  superseded: 'No longer pending',
+}
+
+/** Autopilot decisions (HubSpot-triggered) and policy violations -> live feed items, newest first. */
+export function toAutopilotFeed(actions: AutopilotAction[], events: PolicyEvent[]): (FeedItem & { ts: string })[] {
+  const items = [
+    ...actions.map((a) => ({
+      ts: a.created_at,
+      source: `HubSpot · ${a.trigger.name}${a.simulated ? ' (simulated)' : ''}`,
+      title: `${ACTION_TITLE[a.action].replace('{id}', a.record_id)} — ${a.customer ?? ''}`,
+      outcome: `${OUTCOME[a.decision]}: ${a.reason}`,
+      handled: (a.decision === 'executed' ? 'auto' : a.decision === 'awaiting_approval' ? 'escalated' : 'blocked') as FeedItem['handled'],
+      rule: `${a.trigger.account ?? a.trigger.contact} → ${a.trigger.to} · guardrail ${a.mode === 'approve' ? 'Ask me' : a.mode === 'auto' ? 'Autonomous' : a.mode}`,
+      at: hhmm(a.created_at),
+    })),
+    ...events
+      .filter((e) => e.kind === 'violation' || e.kind === 'policy_rejected')
+      .map((e) => ({
+        ts: e.created_at,
+        source: e.kind === 'violation' ? 'Policy check' : 'Policy editor',
+        title: e.title,
+        outcome: e.kind === 'violation' ? 'Violation recorded · no action taken' : String((e.detail as { reason?: string }).reason ?? ''),
+        handled: 'blocked' as FeedItem['handled'],
+        rule: e.kind === 'violation' ? String((e.detail as { region?: string }).region ?? '') : 'Admission check',
+        at: hhmm(e.created_at),
+      })),
+  ]
+  return items.sort((a, b) => (a.ts < b.ts ? 1 : -1))
+}
+
 export interface LiveData {
   backend: 'up' | 'down' | 'checking'
   sources: RuntimeSource[]
@@ -218,6 +278,9 @@ export interface LiveData {
   models: ModelConfig | null
   leakage: LeakageSummary | null
   leakageCases: LeakageCase[]
+  policies: PolicyRow[]
+  autopilot: AutopilotAction[]
+  policyEvents: PolicyEvent[]
   refresh: () => void
 }
 
@@ -231,6 +294,9 @@ export function useLiveData(enabled: boolean, intervalMs = 5000): LiveData {
     models: null,
     leakage: null,
     leakageCases: [],
+    policies: [],
+    autopilot: [],
+    policyEvents: [],
   })
   const [tick, setTick] = useState(0)
 
@@ -239,7 +305,7 @@ export function useLiveData(enabled: boolean, intervalMs = 5000): LiveData {
     let alive = true
     const load = async () => {
       try {
-        const [sources, events, investigations, answers, models, leakage, leakageCases] = await Promise.all([
+        const [sources, events, investigations, answers, models, leakage, leakageCases, policies, autopilot, policyEvents] = await Promise.all([
           api.sources(),
           api.events(),
           api.investigations(),
@@ -247,8 +313,12 @@ export function useLiveData(enabled: boolean, intervalMs = 5000): LiveData {
           api.models(),
           api.leakageSummary().catch(() => null),
           api.leakageCases().catch(() => []),
+          api.policies().catch(() => []),
+          api.autopilotActions().catch(() => []),
+          api.policyEvents().catch(() => []),
         ])
-        if (alive) setState({ backend: 'up', sources, events, investigations, answers, models, leakage, leakageCases })
+        if (alive)
+          setState({ backend: 'up', sources, events, investigations, answers, models, leakage, leakageCases, policies, autopilot, policyEvents })
       } catch {
         if (alive) setState((s) => ({ ...s, backend: 'down' }))
       }

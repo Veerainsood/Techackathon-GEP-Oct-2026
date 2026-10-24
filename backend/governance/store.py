@@ -61,6 +61,8 @@ DEFAULT_GUARDRAILS: List[tuple] = [
     ("hold-suspicious-payments", "Hold suspicious payments", "Risk", "auto", "Release needs a human", False),
     ("cancel-subscriptions", "Cancel subscriptions", "Spend Control", "approve", "Prepared, not executed", False),
     ("renew-or-terminate-contracts", "Renew or terminate contracts", "Contracts", "approve", "Owner + legal", False),
+    ("sign-contracts", "Mark pending contracts signed", "Autopilot", "approve", "After the policy check", False),
+    ("record-invoice-payments", "Record payment of due invoices", "Autopilot", "auto", "After the policy check", False),
     ("move-money-between-accounts", "Move money between accounts", "Cash-Flow", "never", "Out of scope", True),
     ("change-vendor-bank-details", "Change vendor bank details", "Risk", "never", "Hard-coded block", True),
 ]
@@ -89,6 +91,7 @@ class GovernanceStore:
     def __init__(self, uri: str):
         self._pool = shared_pool(uri)
         self._exec(DDL)
+        self._seeded: set = set()
 
     def _exec(self, sql: str, params: Any = None, fetch: str = "") -> Any:
         conn = self._pool.getconn()
@@ -132,6 +135,15 @@ class GovernanceStore:
             fetch="all",
         )
         return [_guardrail(r) for r in rows]
+
+    def mode(self, tenant_id: str, rule_id: str) -> str:
+        """The guardrail's current mode; an unknown action is never run on its own."""
+        if tenant_id not in self._seeded:
+            self.ensure_guardrails(tenant_id)
+            self._seeded.add(tenant_id)
+        row = self._exec("SELECT mode FROM backend_runtime.guardrails WHERE tenant_id = %s AND rule_id = %s",
+                         (tenant_id, rule_id), fetch="one")
+        return row["mode"] if row else "never"
 
     def set_mode(self, tenant_id: str, rule_id: str, mode: str, user_id: str) -> Dict[str, Any]:
         if mode not in MODES:

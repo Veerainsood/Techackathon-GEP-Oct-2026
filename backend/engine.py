@@ -59,6 +59,8 @@ class Engine:
     conversations: Any = None
     prep: Any = None
     leakage: Any = None
+    policies: Any = None
+    autopilot: Any = None
     _ctx_cache: Dict[Tuple[str, str, bool], CompiledSemanticContext] = field(default_factory=dict)
     _lock: threading.Lock = field(default_factory=threading.Lock)
 
@@ -245,6 +247,10 @@ def build_engine(settings: Optional[Settings] = None, register_defaults: bool = 
         from backend.llm.config import LLMSettings, build_provider
         ledger_llm = build_provider(LLMSettings.from_env("ledger"))
     engine.leakage = LeakageService(engine, knowledge_uri, ledger_llm=ledger_llm)
+    from backend.policies.autopilot import Autopilot
+    from backend.policies.engine import PolicyEngine
+    engine.policies = PolicyEngine(engine, knowledge_uri)
+    engine.autopilot = Autopilot(engine, knowledge_uri)
     if register_defaults:
         # Detected leakage cases, readable by the agents like any other data (read-only, one table).
         gateway.register(PostgresSourceAdapter("leakage", knowledge_uri, name="Leakage cases",

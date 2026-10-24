@@ -3,6 +3,7 @@ import { useEffect, useState, type ReactNode } from 'react'
 import { boundaries, policies, sources, type Action, type Boundary, type Mode, type Source } from '../data'
 import { api } from '../live/api'
 import { LIVE, toBoundary } from '../live/adapter'
+import { PoliciesPanel } from '../live/PoliciesPanel'
 import { ActionRow } from './Thread'
 import { SourceDot } from './ui'
 
@@ -80,7 +81,11 @@ const modeMeta: Record<Mode, { label: string; on: string }> = {
 
 const settingsTabs = [
   { id: 'guardrails', label: 'Guardrails', desc: "How far the agent can go by itself. Inside these limits it runs without you; outside them it comes to you. The model can't override them." },
-  { id: 'policies', label: 'Policies', desc: 'Deterministic rules checked before every action, versioned and owned.' },
+  {
+    id: 'policies',
+    label: 'Policies',
+    desc: 'Which states pending invoices and contracts may reach, by region. A violation blocks the action; Guardrails then decide whether autopilot acts or asks you.',
+  },
   { id: 'notifications', label: 'Notifications', desc: 'Where the agent reaches you when something needs a decision.' },
 ] as const
 
@@ -193,7 +198,8 @@ export function SettingsPage() {
         </>
       )}
 
-      {tab === 'policies' && (
+      {tab === 'policies' && LIVE && <PoliciesPanel />}
+      {tab === 'policies' && !LIVE && (
       <div className="overflow-hidden rounded-xl border border-line bg-white text-[13px]">
         <table className="w-full">
           <thead className="bg-stone-50 text-left text-[11px] uppercase tracking-wider text-muted">
